@@ -11,6 +11,13 @@ interface Message {
 }
 
 const DEFAULT_URL = 'http://localhost:8000';
+
+// Базовые заголовки для всех запросов
+// ngrok-skip-browser-warning убирает предупреждение ngrok для API запросов
+const BASE_HEADERS: Record<string, string> = {
+  'Content-Type': 'application/json',
+  'ngrok-skip-browser-warning': 'true',
+};
 const STORAGE_KEY_URL = 'mipo_server_url';
 const STORAGE_KEY_HISTORY = 'mipo_history';
 
@@ -74,7 +81,7 @@ export default function MipoInterface() {
   // Проверка доступности сервера
   const checkServer = async (url: string) => {
     try {
-      const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(3000) });
+      const res = await fetch(`${url}/health`, { headers: BASE_HEADERS, signal: AbortSignal.timeout(3000) });
       setServerStatus(res.ok ? 'online' : 'offline');
     } catch {
       setServerStatus('offline');
@@ -241,7 +248,7 @@ export default function MipoInterface() {
     if (!visualizerAnimationRef.current) drawVisualizer();
     try {
       const res = await fetch(`${serverUrl}/api/tts`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: BASE_HEADERS,
         body: JSON.stringify({ text }),
       });
       if (!res.ok) throw new Error('TTS не отвечает');
@@ -270,7 +277,7 @@ export default function MipoInterface() {
 
     try {
       const res = await fetch(`${serverUrl}/api/chat`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: BASE_HEADERS,
         body: JSON.stringify({ message: textToProcess, history }),
       });
       if (!res.ok) throw new Error(`Ошибка ${res.status}`);
