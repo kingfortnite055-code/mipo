@@ -1,0 +1,8 @@
+{
+  "name": "MIPO Web Interface",
+  "description": "A voice-activated AI assistant interface with a sci-fi HUD aesthetic. Features text/voice interaction, system monitoring, and intelligent responses via Gemini.",
+  "requestFramePermissions": [
+    "microphone",
+    "geolocation"
+  ]
+}

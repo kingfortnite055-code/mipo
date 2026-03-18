@@ -1,0 +1,20 @@
+{
+  "name": "Интерфейс J.A.R.V.I.S.",
+  "short_name": "JARVIS",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#06b6d4",
+  "icons": [
+    {
+      "src": "https://picsum.photos/192/192?blur=2",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://picsum.photos/512/512?blur=2",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
