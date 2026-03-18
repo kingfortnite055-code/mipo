@@ -26,8 +26,8 @@ from llama_cpp import Llama
 MIPO_MODEL_PATH = "./mipo_adapter.gguf"
 
 # Если вдруг это отдельный LoRA адаптер, укажи путь к базовой модели:
-# BASE_MODEL_PATH = "./Qwen3-14B-Q4_K_M.gguf"
-# LORA_PATH = "./mipo_adapter.gguf"
+# BASE_MODEL_PATH = "/Qwen3-14B-Claude-4.5-Opus-Distill.q4_k_m.gguf"
+# LORA_PATH = "/mipo_adapter.gguf"
 
 # Параметры загрузки
 N_GPU_LAYERS = 20       # Сколько слоёв на GPU (при 2-4GB VRAM — от 10 до 25, подбери)
