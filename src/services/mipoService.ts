@@ -1,31 +1,47 @@
 // src/services/mipoService.ts
+// Утилита для прямого вызова MIPO Engine (опциональная, для переиспользования)
+
+const MIPO_ENGINE_URL = 'http://localhost:8000';
 
 export interface MipoResponse {
   reply: string;
-  audioBase64?: string; // Добавляем поле для аудио
+  audio?: string; // base64 mp3
 }
 
-export async function askJarvis(message: string): Promise<MipoResponse> {
+export async function sendMessage(message: string): Promise<MipoResponse> {
   try {
-    const response = await fetch('http://localhost:8000/api/chat', {
+    const response = await fetch(`${MIPO_ENGINE_URL}/api/chat`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message }),
     });
 
     if (!response.ok) {
-      throw new Error('Локальный агент Mipo недоступен');
+      throw new Error(`Сервер MIPO вернул ошибку: ${response.status}`);
     }
 
-    // Возвращаем полный объект ответа (текст + звук)
-    const data = await response.json();
-    return data; 
+    return await response.json();
   } catch (error) {
-    console.error('Mipo Communication Error:', error);
-    return { 
-      reply: "СИСТЕМНЫЙ СБОЙ: Локальный агент не отвечает." 
+    console.error('MIPO Service Error:', error);
+    return {
+      reply: 'СИСТЕМНЫЙ СБОЙ: MIPO Engine не отвечает. Проверьте порт 8000.',
     };
+  }
+}
+
+export async function synthesizeSpeech(text: string): Promise<string | null> {
+  try {
+    const response = await fetch(`${MIPO_ENGINE_URL}/api/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) throw new Error('TTS недоступен');
+    const data = await response.json();
+    return data.audio ?? null;
+  } catch (error) {
+    console.error('TTS Error:', error);
+    return null;
   }
 }

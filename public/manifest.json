@@ -1,6 +1,6 @@
 {
-  "name": "Интерфейс J.A.R.V.I.S.",
-  "short_name": "JARVIS",
+  "name": "MIPO Interface",
+  "short_name": "MIPO",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",

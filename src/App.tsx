@@ -1,10 +1,5 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import JarvisInterface from './components/JarvisInterface';
+import MipoInterface from './components/MipoInterface';
 
 export default function App() {
-  return <JarvisInterface />;
+  return <MipoInterface />;
 }
