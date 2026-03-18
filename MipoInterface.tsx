@@ -27,7 +27,6 @@ export default function MipoInterface() {
   const recognitionRef = useRef<any>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
-  // Визуализатор
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const visualizerStreamRef = useRef<MediaStream | null>(null);
   const visualizerAnimationRef = useRef<number>(0);
@@ -35,12 +34,11 @@ export default function MipoInterface() {
   const dataArrayRef = useRef<Uint8Array | null>(null);
   const isSpeakingRef = useRef(false);
 
-  // Синхронизация ref с state для доступа внутри колбэков
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
-  // Загрузка истории из localStorage
+  // Загрузка истории
   useEffect(() => {
     const saved = localStorage.getItem('mipo_history');
     if (saved) {
@@ -56,7 +54,7 @@ export default function MipoInterface() {
     }
   }, []);
 
-  // Сохранение истории в localStorage
+  // Сохранение истории
   useEffect(() => {
     const saveHistory = () => {
       if (messagesRef.current.length > 0) {
@@ -72,7 +70,7 @@ export default function MipoInterface() {
     };
   }, []);
 
-  // Инициализация Speech Recognition
+  // Speech Recognition
   useEffect(() => {
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       const SpeechRecognition =
@@ -99,31 +97,22 @@ export default function MipoInterface() {
         setIsListening(false);
         stopVisualizer();
       };
-
-      recognitionRef.current.onend = () => {
-        // Перезапускаем только если пользователь специально включил прослушивание
-        if (isListening) {
-          try { recognitionRef.current?.start(); } catch (e) {}
-        }
-      };
     }
   }, []);
 
-  // Подписка на голосовые команды
+  // Голосовые команды
   useEffect(() => {
-    const handleVoiceCommand = (e: any) => {
-      handleSendMessage(e.detail);
-    };
+    const handleVoiceCommand = (e: any) => { handleSendMessage(e.detail); };
     window.addEventListener('mipo-voice-command', handleVoiceCommand);
     return () => window.removeEventListener('mipo-voice-command', handleVoiceCommand);
   }, [isProcessing]);
 
-  // Автоскролл к последнему сообщению
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // --- АУДИО ---
+  // ── АУДИО ──────────────────────────────────────────────
+
   const initAudio = () => {
     if (!audioContextRef.current) {
       audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -135,31 +124,28 @@ export default function MipoInterface() {
 
   const playBeep = (type: 'send' | 'receive') => {
     if (!audioContextRef.current) return;
-    const oscillator = audioContextRef.current.createOscillator();
-    const gainNode = audioContextRef.current.createGain();
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContextRef.current.destination);
-
+    const osc = audioContextRef.current.createOscillator();
+    const gain = audioContextRef.current.createGain();
+    osc.connect(gain);
+    gain.connect(audioContextRef.current.destination);
+    const now = audioContextRef.current.currentTime;
     if (type === 'send') {
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(800, audioContextRef.current.currentTime);
-      oscillator.frequency.exponentialRampToValueAtTime(1200, audioContextRef.current.currentTime + 0.1);
-      gainNode.gain.setValueAtTime(0.1, audioContextRef.current.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContextRef.current.currentTime + 0.1);
-      oscillator.start();
-      oscillator.stop(audioContextRef.current.currentTime + 0.1);
+      osc.frequency.setValueAtTime(800, now);
+      osc.frequency.exponentialRampToValueAtTime(1200, now + 0.1);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+      osc.start(); osc.stop(now + 0.1);
     } else {
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(1200, audioContextRef.current.currentTime);
-      oscillator.frequency.exponentialRampToValueAtTime(800, audioContextRef.current.currentTime + 0.15);
-      gainNode.gain.setValueAtTime(0.1, audioContextRef.current.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContextRef.current.currentTime + 0.15);
-      oscillator.start();
-      oscillator.stop(audioContextRef.current.currentTime + 0.15);
+      osc.frequency.setValueAtTime(1200, now);
+      osc.frequency.exponentialRampToValueAtTime(800, now + 0.15);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+      osc.start(); osc.stop(now + 0.15);
     }
   };
 
-  // --- ВИЗУАЛИЗАТОР ---
+  // ── ВИЗУАЛИЗАТОР ────────────────────────────────────────
+
   const drawVisualizer = () => {
     visualizerAnimationRef.current = requestAnimationFrame(drawVisualizer);
     const canvas = canvasRef.current;
@@ -177,45 +163,33 @@ export default function MipoInterface() {
       }
       const time = Date.now() / 100;
       for (let i = 0; i < 64; i++) {
-        const value =
-          Math.sin(i * 0.2 + time) * 50 +
-          Math.cos(i * 0.5 - time) * 30 +
-          Math.random() * 20 +
-          80;
-        dataArray[i] = Math.min(255, Math.max(0, value));
+        dataArray[i] = Math.min(255, Math.max(0,
+          Math.sin(i * 0.2 + time) * 50 + Math.cos(i * 0.5 - time) * 30 + Math.random() * 20 + 80
+        ));
       }
     } else {
-      if (dataArray) dataArray.fill(0);
+      dataArray?.fill(0);
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-    const radius = 30;
+    const cx = canvas.width / 2, cy = canvas.height / 2, r = 30;
 
     ctx.beginPath();
-    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(6, 182, 212, 0.3)';
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    const bars = 64;
-    const step = (Math.PI * 2) / bars;
-
     if (dataArray) {
-      for (let i = 0; i < bars; i++) {
-        const value = dataArray[i] || 0;
-        const barHeight = (value / 255) * 50;
-        const angle = i * step;
-        const x1 = centerX + Math.cos(angle) * radius;
-        const y1 = centerY + Math.sin(angle) * radius;
-        const x2 = centerX + Math.cos(angle) * (radius + barHeight);
-        const y2 = centerY + Math.sin(angle) * (radius + barHeight);
-
+      const step = (Math.PI * 2) / 64;
+      for (let i = 0; i < 64; i++) {
+        const v = dataArray[i] || 0;
+        const h = (v / 255) * 50;
+        const a = i * step;
         ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.strokeStyle = `rgba(6, 182, 212, ${value > 10 ? value / 200 : 0.1})`;
+        ctx.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+        ctx.lineTo(cx + Math.cos(a) * (r + h), cy + Math.sin(a) * (r + h));
+        ctx.strokeStyle = `rgba(6, 182, 212, ${v > 10 ? v / 200 : 0.1})`;
         ctx.lineWidth = 2;
         ctx.stroke();
       }
@@ -227,18 +201,13 @@ export default function MipoInterface() {
       if (!visualizerStreamRef.current) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         visualizerStreamRef.current = stream;
-
-        if (!audioContextRef.current) {
+        if (!audioContextRef.current)
           audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-        }
-        if (audioContextRef.current.state === 'suspended') {
+        if (audioContextRef.current.state === 'suspended')
           await audioContextRef.current.resume();
-        }
-
         const analyser = audioContextRef.current.createAnalyser();
-        const source = audioContextRef.current.createMediaStreamSource(stream);
+        audioContextRef.current.createMediaStreamSource(stream).connect(analyser);
         analyser.fftSize = 256;
-        source.connect(analyser);
         analyserRef.current = analyser;
         dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount);
       }
@@ -249,78 +218,78 @@ export default function MipoInterface() {
   };
 
   const stopVisualizer = () => {
-    if (visualizerStreamRef.current) {
-      visualizerStreamRef.current.getTracks().forEach((track) => track.stop());
-      visualizerStreamRef.current = null;
-    }
+    visualizerStreamRef.current?.getTracks().forEach(t => t.stop());
+    visualizerStreamRef.current = null;
     analyserRef.current = null;
     if (!isSpeakingRef.current) {
-      if (visualizerAnimationRef.current) {
-        cancelAnimationFrame(visualizerAnimationRef.current);
-        visualizerAnimationRef.current = 0;
-      }
+      cancelAnimationFrame(visualizerAnimationRef.current);
+      visualizerAnimationRef.current = 0;
       const canvas = canvasRef.current;
-      if (canvas) {
-        const ctx = canvas.getContext('2d');
-        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
+      if (canvas) canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
     }
-  };
-
-  const startTTSVisualizer = () => {
-    if (!visualizerAnimationRef.current) drawVisualizer();
   };
 
   const checkStopVisualizer = () => {
     if (!isSpeakingRef.current && !visualizerStreamRef.current) {
-      if (visualizerAnimationRef.current) {
-        cancelAnimationFrame(visualizerAnimationRef.current);
-        visualizerAnimationRef.current = 0;
-      }
+      cancelAnimationFrame(visualizerAnimationRef.current);
+      visualizerAnimationRef.current = 0;
       const canvas = canvasRef.current;
-      if (canvas) {
-        const ctx = canvas.getContext('2d');
-        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
+      if (canvas) canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
     }
   };
 
-  // --- ОЗВУЧКА ---
+  // ── ОЗВУЧКА ─────────────────────────────────────────────
+
+  const playAudio = async (base64: string) => {
+    setIsSpeaking(true);
+    isSpeakingRef.current = true;
+    if (!visualizerAnimationRef.current) drawVisualizer();
+
+    const audio = new Audio(`data:audio/mpeg;base64,${base64}`);
+    audio.onended = () => {
+      setIsSpeaking(false);
+      isSpeakingRef.current = false;
+      checkStopVisualizer();
+    };
+    await audio.play();
+  };
+
   const speak = async (text: string) => {
     if (!text.trim()) return;
     setIsSpeaking(true);
     isSpeakingRef.current = true;
-    startTTSVisualizer();
+    if (!visualizerAnimationRef.current) drawVisualizer();
 
     try {
-      const response = await fetch(`${MIPO_ENGINE_URL}/api/tts`, {
+      const res = await fetch(`${MIPO_ENGINE_URL}/api/tts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       });
-
-      if (!response.ok) throw new Error('Сервер TTS не отвечает');
-
-      const data = await response.json();
-      const audioUrl = `data:audio/mpeg;base64,${data.audio}`;
-      const audio = new Audio(audioUrl);
-
-      audio.onended = () => {
-        setIsSpeaking(false);
-        isSpeakingRef.current = false;
-        checkStopVisualizer();
-      };
-
-      await audio.play();
-    } catch (error) {
-      console.error('Ошибка озвучки:', error);
+      if (!res.ok) throw new Error('TTS не отвечает');
+      const data = await res.json();
+      await playAudio(data.audio);
+    } catch (err) {
+      console.error('Ошибка озвучки:', err);
       setIsSpeaking(false);
       isSpeakingRef.current = false;
       checkStopVisualizer();
     }
   };
 
-  // --- ОТПРАВКА СООБЩЕНИЯ ---
+  // ── ОТПРАВКА СООБЩЕНИЯ ──────────────────────────────────
+
+  /**
+   * Конвертируем messages[] в формат истории для бэкенда.
+   * Берём последние 20 сообщений, кроме текущего.
+   */
+  const buildHistory = (currentMessages: Message[]) => {
+    return currentMessages.slice(-20).map(m => ({
+      role: m.sender === 'user' ? 'user' : 'assistant',
+      text: m.text,
+    }));
+  };
+
   const handleSendMessage = async (textToProcess: string = inputText) => {
     if (!textToProcess.trim() || isProcessing) return;
 
@@ -333,56 +302,50 @@ export default function MipoInterface() {
       sender: 'user',
       timestamp: new Date(),
     };
-    setMessages((prev) => [...prev, userMsg]);
+
+    // Снимаем историю ДО добавления нового сообщения
+    const history = buildHistory(messagesRef.current);
+
+    setMessages(prev => [...prev, userMsg]);
     setInputText('');
 
     try {
-      const chatResponse = await fetch(`${MIPO_ENGINE_URL}/api/chat`, {
+      const res = await fetch(`${MIPO_ENGINE_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: textToProcess }),
+        body: JSON.stringify({
+          message: textToProcess,
+          history,          // передаём историю диалога
+        }),
       });
 
-      if (!chatResponse.ok) throw new Error(`Ошибка сервера: ${chatResponse.status}`);
+      if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
 
-      const chatData = await chatResponse.json();
-      const replyText = chatData.reply;
-
+      const data = await res.json();
       playBeep('receive');
+
       const mipoMsg: Message = {
         id: crypto.randomUUID(),
-        text: replyText,
+        text: data.reply,
         sender: 'jarvis',
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, mipoMsg]);
+      setMessages(prev => [...prev, mipoMsg]);
 
-      // Если аудио уже пришло с ответом — воспроизводим напрямую
-      if (chatData.audio) {
-        setIsSpeaking(true);
-        isSpeakingRef.current = true;
-        startTTSVisualizer();
-        const audioUrl = `data:audio/mpeg;base64,${chatData.audio}`;
-        const audio = new Audio(audioUrl);
-        audio.onended = () => {
-          setIsSpeaking(false);
-          isSpeakingRef.current = false;
-          checkStopVisualizer();
-        };
-        await audio.play();
+      // Воспроизводим аудио (пришло сразу или запрашиваем отдельно)
+      if (data.audio) {
+        await playAudio(data.audio);
       } else {
-        // Иначе запрашиваем TTS отдельно
-        speak(replyText);
+        await speak(data.reply);
       }
-    } catch (error) {
-      console.error('Ошибка связи с MIPO Engine:', error);
-      const errorMsg: Message = {
+    } catch (err) {
+      console.error('Ошибка MIPO Engine:', err);
+      setMessages(prev => [...prev, {
         id: crypto.randomUUID(),
         text: 'Сбой подключения к MIPO Engine. Проверьте, запущен ли mipo_engine.py на порту 8000.',
         sender: 'jarvis',
         timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, errorMsg]);
+      }]);
     } finally {
       setIsProcessing(false);
     }
@@ -391,46 +354,41 @@ export default function MipoInterface() {
   const toggleListening = () => {
     if (isListening) {
       setIsListening(false);
-      try { recognitionRef.current?.stop(); } catch (e) {}
+      try { recognitionRef.current?.stop(); } catch (_) {}
       stopVisualizer();
     } else {
       setIsListening(true);
-      try { recognitionRef.current?.start(); } catch (e) {}
+      try { recognitionRef.current?.start(); } catch (_) {}
       startVisualizer();
     }
   };
 
-  // --- ИНИЦИАЛИЗАЦИЯ ---
+  // ── ИНИЦИАЛИЗАЦИЯ ────────────────────────────────────────
+
   const initializeSystem = () => {
     initAudio();
     setInitialized(true);
     playBeep('receive');
 
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setLocation(`${position.coords.latitude.toFixed(2)}, ${position.coords.longitude.toFixed(2)}`);
-        },
-        () => setLocation('НЕДОСТУПНО')
-      );
-    }
+    navigator.geolocation?.getCurrentPosition(
+      pos => setLocation(`${pos.coords.latitude.toFixed(2)}, ${pos.coords.longitude.toFixed(2)}`),
+      () => setLocation('НЕДОСТУПНО')
+    );
 
     setTimeout(() => {
-      const initialMsg: Message = {
+      const initMsg: Message = {
         id: 'init',
         text: 'Системы MIPO в сети. Локальный сервер подключён на порту 8000.',
         sender: 'jarvis',
         timestamp: new Date(),
       };
-      setMessages((prev) => {
-        if (prev.find((m) => m.id === 'init')) return prev;
-        return [...prev, initialMsg];
-      });
-      speak(initialMsg.text);
+      setMessages(prev => prev.find(m => m.id === 'init') ? prev : [...prev, initMsg]);
+      speak(initMsg.text);
     }, 1000);
   };
 
-  // --- РЕНДЕР ---
+  // ── РЕНДЕР ───────────────────────────────────────────────
+
   if (!initialized) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -450,6 +408,7 @@ export default function MipoInterface() {
 
   return (
     <div className="min-h-screen bg-black text-cyan-400 flex flex-col p-4 gap-4 font-mono">
+
       {/* Шапка */}
       <header className="flex items-center justify-between border-b border-cyan-900/30 pb-3">
         <div className="flex items-center gap-4">
@@ -461,16 +420,14 @@ export default function MipoInterface() {
         </div>
         <div className="flex gap-6 text-[10px] md:text-xs">
           <div className="flex items-center gap-2 text-cyan-600">
-            <Globe className="w-3 h-3" />
-            <span>{location}</span>
+            <Globe className="w-3 h-3" /><span>{location}</span>
           </div>
           <div className="flex items-center gap-2 text-cyan-600">
-            <Wifi className="w-3 h-3" />
-            <span>MIPO:8000</span>
+            <Wifi className="w-3 h-3" /><span>MIPO:8000</span>
           </div>
           <div className="flex items-center gap-2">
             <Activity className="w-3 h-3" />
-            <span className={isSpeaking ? 'text-cyan-300 animate-pulse' : 'text-cyan-700'}>
+            <span className={isSpeaking ? 'text-cyan-300 animate-pulse' : isProcessing ? 'text-yellow-500 animate-pulse' : 'text-cyan-700'}>
               {isSpeaking ? 'РЕЧЬ' : isProcessing ? 'ОБРАБОТКА' : 'ОЖИДАНИЕ'}
             </span>
           </div>
@@ -479,9 +436,9 @@ export default function MipoInterface() {
 
       {/* Чат */}
       <main className="flex-1 flex flex-col bg-black/20 border border-cyan-900/30 rounded-lg backdrop-blur-sm overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
           <AnimatePresence>
-            {messages.map((msg) => (
+            {messages.map(msg => (
               <motion.div
                 key={msg.id}
                 initial={{ opacity: 0, y: 8 }}
@@ -491,14 +448,12 @@ export default function MipoInterface() {
                   msg.sender === 'user' ? 'ml-auto items-end' : 'mr-auto items-start'
                 )}
               >
-                <div
-                  className={cn(
-                    'px-4 py-3 rounded-lg border backdrop-blur-md text-sm',
-                    msg.sender === 'user'
-                      ? 'bg-cyan-950/30 border-cyan-700/30 text-cyan-100'
-                      : 'bg-black/40 border-cyan-900/30 text-cyan-300'
-                  )}
-                >
+                <div className={cn(
+                  'px-4 py-3 rounded-lg border text-sm leading-relaxed',
+                  msg.sender === 'user'
+                    ? 'bg-cyan-950/30 border-cyan-700/30 text-cyan-100'
+                    : 'bg-black/40 border-cyan-900/30 text-cyan-300'
+                )}>
                   {msg.text}
                 </div>
                 <span className="text-[10px] text-cyan-800 mt-1">
@@ -510,12 +465,10 @@ export default function MipoInterface() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Строка ввода */}
+        {/* Ввод */}
         <div className="p-4 border-t border-cyan-900/30 bg-black/40">
           {liveTranscript && (
-            <div className="text-xs text-cyan-600 italic mb-2 px-1">
-              🎙 {liveTranscript}
-            </div>
+            <div className="text-xs text-cyan-600 italic mb-2 px-1">🎙 {liveTranscript}</div>
           )}
           <div className="flex items-center gap-3">
             <button
@@ -533,12 +486,9 @@ export default function MipoInterface() {
             <input
               type="text"
               value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
+              onChange={e => setInputText(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
               }}
               placeholder="Введите команду..."
               className="flex-1 bg-transparent border-b border-cyan-800/50 text-cyan-100 placeholder-cyan-800 text-sm py-2 px-1 outline-none focus:border-cyan-500/70 transition-colors"
