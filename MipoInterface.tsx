@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mic, MicOff, Send, Globe, Wifi, Activity } from 'lucide-react';
+import { Mic, MicOff, Send, Globe, Wifi, Activity, Settings, X, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Message {
@@ -10,7 +10,9 @@ interface Message {
   timestamp: Date;
 }
 
-const MIPO_ENGINE_URL = 'http://localhost:8000';
+const DEFAULT_URL = 'http://localhost:8000';
+const STORAGE_KEY_URL = 'mipo_server_url';
+const STORAGE_KEY_HISTORY = 'mipo_history';
 
 export default function MipoInterface() {
   const [initialized, setInitialized] = useState(false);
@@ -21,6 +23,14 @@ export default function MipoInterface() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [location, setLocation] = useState<string>('НЕИЗВЕСТНО');
   const [liveTranscript, setLiveTranscript] = useState('');
+
+  // Настройки сервера
+  const [serverUrl, setServerUrl] = useState<string>(
+    () => localStorage.getItem(STORAGE_KEY_URL) || DEFAULT_URL
+  );
+  const [showSettings, setShowSettings] = useState(false);
+  const [urlInput, setUrlInput] = useState(serverUrl);
+  const [serverStatus, setServerStatus] = useState<'unknown' | 'online' | 'offline'>('unknown');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<Message[]>([]);
@@ -34,100 +44,95 @@ export default function MipoInterface() {
   const dataArrayRef = useRef<Uint8Array | null>(null);
   const isSpeakingRef = useRef(false);
 
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   // Загрузка истории
   useEffect(() => {
-    const saved = localStorage.getItem('mipo_history');
+    const saved = localStorage.getItem(STORAGE_KEY_HISTORY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         const hydrated = parsed.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) }));
-        const uniqueMap = new Map();
-        hydrated.forEach((m: any) => uniqueMap.set(m.id, m));
-        setMessages(Array.from(uniqueMap.values()));
-      } catch (e) {
-        console.error('Ошибка загрузки истории:', e);
-      }
+        const map = new Map();
+        hydrated.forEach((m: any) => map.set(m.id, m));
+        setMessages(Array.from(map.values()));
+      } catch (e) { console.error('Ошибка загрузки истории:', e); }
     }
   }, []);
 
   // Сохранение истории
   useEffect(() => {
-    const saveHistory = () => {
-      if (messagesRef.current.length > 0) {
-        localStorage.setItem('mipo_history', JSON.stringify(messagesRef.current));
-      }
+    const save = () => {
+      if (messagesRef.current.length > 0)
+        localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(messagesRef.current));
     };
-    const interval = setInterval(saveHistory, 30000);
-    window.addEventListener('beforeunload', saveHistory);
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('beforeunload', saveHistory);
-      saveHistory();
-    };
+    const interval = setInterval(save, 30000);
+    window.addEventListener('beforeunload', save);
+    return () => { clearInterval(interval); window.removeEventListener('beforeunload', save); save(); };
   }, []);
+
+  // Проверка доступности сервера
+  const checkServer = async (url: string) => {
+    try {
+      const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(3000) });
+      setServerStatus(res.ok ? 'online' : 'offline');
+    } catch {
+      setServerStatus('offline');
+    }
+  };
+
+  useEffect(() => {
+    if (initialized) checkServer(serverUrl);
+  }, [serverUrl, initialized]);
 
   // Speech Recognition
   useEffect(() => {
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition =
-        (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = true;
-      recognitionRef.current.lang = 'ru-RU';
+    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) return;
+    const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+    recognitionRef.current = new SR();
+    recognitionRef.current.continuous = true;
+    recognitionRef.current.interimResults = true;
+    recognitionRef.current.lang = 'ru-RU';
 
-      recognitionRef.current.onresult = (event: any) => {
-        if (!event.results || event.results.length === 0) return;
-        const result = event.results[event.results.length - 1];
-        if (!result || !result[0]) return;
-        const transcript = result[0].transcript;
-        setLiveTranscript(transcript);
-        if (result.isFinal) {
-          setInputText(transcript);
-          window.dispatchEvent(new CustomEvent('mipo-voice-command', { detail: transcript }));
-          setLiveTranscript('');
-        }
-      };
+    recognitionRef.current.onresult = (event: any) => {
+      if (!event.results?.length) return;
+      const result = event.results[event.results.length - 1];
+      const transcript = result[0]?.transcript ?? '';
+      setLiveTranscript(transcript);
+      if (result.isFinal) {
+        setInputText(transcript);
+        window.dispatchEvent(new CustomEvent('mipo-voice-command', { detail: transcript }));
+        setLiveTranscript('');
+      }
+    };
 
-      recognitionRef.current.onerror = () => {
-        setIsListening(false);
-        stopVisualizer();
-      };
-    }
+    recognitionRef.current.onerror = () => { setIsListening(false); stopVisualizer(); };
   }, []);
 
-  // Голосовые команды
   useEffect(() => {
-    const handleVoiceCommand = (e: any) => { handleSendMessage(e.detail); };
-    window.addEventListener('mipo-voice-command', handleVoiceCommand);
-    return () => window.removeEventListener('mipo-voice-command', handleVoiceCommand);
+    const handler = (e: any) => handleSendMessage(e.detail);
+    window.addEventListener('mipo-voice-command', handler);
+    return () => window.removeEventListener('mipo-voice-command', handler);
   }, [isProcessing]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // ── АУДИО ──────────────────────────────────────────────
+  // ── АУДИО ──────────────────────────────────────
 
   const initAudio = () => {
-    if (!audioContextRef.current) {
+    if (!audioContextRef.current)
       audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    if (audioContextRef.current.state === 'suspended') {
+    if (audioContextRef.current.state === 'suspended')
       audioContextRef.current.resume();
-    }
   };
 
   const playBeep = (type: 'send' | 'receive') => {
     if (!audioContextRef.current) return;
     const osc = audioContextRef.current.createOscillator();
     const gain = audioContextRef.current.createGain();
-    osc.connect(gain);
-    gain.connect(audioContextRef.current.destination);
+    osc.connect(gain); gain.connect(audioContextRef.current.destination);
     const now = audioContextRef.current.currentTime;
     if (type === 'send') {
       osc.frequency.setValueAtTime(800, now);
@@ -144,7 +149,7 @@ export default function MipoInterface() {
     }
   };
 
-  // ── ВИЗУАЛИЗАТОР ────────────────────────────────────────
+  // ── ВИЗУАЛИЗАТОР ────────────────────────────────
 
   const drawVisualizer = () => {
     visualizerAnimationRef.current = requestAnimationFrame(drawVisualizer);
@@ -157,41 +162,26 @@ export default function MipoInterface() {
     if (analyserRef.current && dataArray) {
       analyserRef.current.getByteFrequencyData(dataArray);
     } else if (isSpeakingRef.current) {
-      if (!dataArray || dataArray.length !== 64) {
-        dataArray = new Uint8Array(64);
-        dataArrayRef.current = dataArray;
-      }
-      const time = Date.now() / 100;
-      for (let i = 0; i < 64; i++) {
-        dataArray[i] = Math.min(255, Math.max(0,
-          Math.sin(i * 0.2 + time) * 50 + Math.cos(i * 0.5 - time) * 30 + Math.random() * 20 + 80
-        ));
-      }
-    } else {
-      dataArray?.fill(0);
-    }
+      if (!dataArray || dataArray.length !== 64) { dataArray = new Uint8Array(64); dataArrayRef.current = dataArray; }
+      const t = Date.now() / 100;
+      for (let i = 0; i < 64; i++)
+        dataArray[i] = Math.min(255, Math.max(0, Math.sin(i * 0.2 + t) * 50 + Math.cos(i * 0.5 - t) * 30 + Math.random() * 20 + 80));
+    } else { dataArray?.fill(0); }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const cx = canvas.width / 2, cy = canvas.height / 2, r = 30;
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(6, 182, 212, 0.3)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(6,182,212,0.3)'; ctx.lineWidth = 1; ctx.stroke();
 
     if (dataArray) {
       const step = (Math.PI * 2) / 64;
       for (let i = 0; i < 64; i++) {
-        const v = dataArray[i] || 0;
-        const h = (v / 255) * 50;
-        const a = i * step;
+        const v = dataArray[i] || 0, h = (v / 255) * 50, a = i * step;
         ctx.beginPath();
         ctx.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
         ctx.lineTo(cx + Math.cos(a) * (r + h), cy + Math.sin(a) * (r + h));
-        ctx.strokeStyle = `rgba(6, 182, 212, ${v > 10 ? v / 200 : 0.1})`;
-        ctx.lineWidth = 2;
-        ctx.stroke();
+        ctx.strokeStyle = `rgba(6,182,212,${v > 10 ? v / 200 : 0.1})`;
+        ctx.lineWidth = 2; ctx.stroke();
       }
     }
   };
@@ -203,8 +193,7 @@ export default function MipoInterface() {
         visualizerStreamRef.current = stream;
         if (!audioContextRef.current)
           audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-        if (audioContextRef.current.state === 'suspended')
-          await audioContextRef.current.resume();
+        if (audioContextRef.current.state === 'suspended') await audioContextRef.current.resume();
         const analyser = audioContextRef.current.createAnalyser();
         audioContextRef.current.createMediaStreamSource(stream).connect(analyser);
         analyser.fftSize = 256;
@@ -212,9 +201,7 @@ export default function MipoInterface() {
         dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount);
       }
       if (!visualizerAnimationRef.current) drawVisualizer();
-    } catch (err) {
-      console.error('Ошибка визуализатора:', err);
-    }
+    } catch (err) { console.error('Визуализатор:', err); }
   };
 
   const stopVisualizer = () => {
@@ -238,113 +225,69 @@ export default function MipoInterface() {
     }
   };
 
-  // ── ОЗВУЧКА ─────────────────────────────────────────────
+  // ── ОЗВУЧКА ─────────────────────────────────────
 
-  const playAudio = async (base64: string) => {
-    setIsSpeaking(true);
-    isSpeakingRef.current = true;
+  const playAudioBase64 = async (b64: string) => {
+    setIsSpeaking(true); isSpeakingRef.current = true;
     if (!visualizerAnimationRef.current) drawVisualizer();
-
-    const audio = new Audio(`data:audio/mpeg;base64,${base64}`);
-    audio.onended = () => {
-      setIsSpeaking(false);
-      isSpeakingRef.current = false;
-      checkStopVisualizer();
-    };
+    const audio = new Audio(`data:audio/mpeg;base64,${b64}`);
+    audio.onended = () => { setIsSpeaking(false); isSpeakingRef.current = false; checkStopVisualizer(); };
     await audio.play();
   };
 
   const speak = async (text: string) => {
     if (!text.trim()) return;
-    setIsSpeaking(true);
-    isSpeakingRef.current = true;
+    setIsSpeaking(true); isSpeakingRef.current = true;
     if (!visualizerAnimationRef.current) drawVisualizer();
-
     try {
-      const res = await fetch(`${MIPO_ENGINE_URL}/api/tts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch(`${serverUrl}/api/tts`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       });
       if (!res.ok) throw new Error('TTS не отвечает');
       const data = await res.json();
-      await playAudio(data.audio);
+      await playAudioBase64(data.audio);
     } catch (err) {
-      console.error('Ошибка озвучки:', err);
-      setIsSpeaking(false);
-      isSpeakingRef.current = false;
-      checkStopVisualizer();
+      console.error('TTS:', err);
+      setIsSpeaking(false); isSpeakingRef.current = false; checkStopVisualizer();
     }
   };
 
-  // ── ОТПРАВКА СООБЩЕНИЯ ──────────────────────────────────
+  // ── ОТПРАВКА ─────────────────────────────────────
 
-  /**
-   * Конвертируем messages[] в формат истории для бэкенда.
-   * Берём последние 20 сообщений, кроме текущего.
-   */
-  const buildHistory = (currentMessages: Message[]) => {
-    return currentMessages.slice(-20).map(m => ({
-      role: m.sender === 'user' ? 'user' : 'assistant',
-      text: m.text,
-    }));
-  };
+  const buildHistory = (msgs: Message[]) =>
+    msgs.slice(-20).map(m => ({ role: m.sender === 'user' ? 'user' : 'assistant', text: m.text }));
 
   const handleSendMessage = async (textToProcess: string = inputText) => {
     if (!textToProcess.trim() || isProcessing) return;
-
     setIsProcessing(true);
     playBeep('send');
 
-    const userMsg: Message = {
-      id: crypto.randomUUID(),
-      text: textToProcess,
-      sender: 'user',
-      timestamp: new Date(),
-    };
-
-    // Снимаем историю ДО добавления нового сообщения
+    const userMsg: Message = { id: crypto.randomUUID(), text: textToProcess, sender: 'user', timestamp: new Date() };
     const history = buildHistory(messagesRef.current);
-
     setMessages(prev => [...prev, userMsg]);
     setInputText('');
 
     try {
-      const res = await fetch(`${MIPO_ENGINE_URL}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: textToProcess,
-          history,          // передаём историю диалога
-        }),
+      const res = await fetch(`${serverUrl}/api/chat`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: textToProcess, history }),
       });
-
-      if (!res.ok) throw new Error(`Ошибка сервера: ${res.status}`);
+      if (!res.ok) throw new Error(`Ошибка ${res.status}`);
 
       const data = await res.json();
       playBeep('receive');
+      setMessages(prev => [...prev, { id: crypto.randomUUID(), text: data.reply, sender: 'jarvis', timestamp: new Date() }]);
 
-      const mipoMsg: Message = {
-        id: crypto.randomUUID(),
-        text: data.reply,
-        sender: 'jarvis',
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, mipoMsg]);
+      if (data.audio) await playAudioBase64(data.audio);
+      else await speak(data.reply);
 
-      // Воспроизводим аудио (пришло сразу или запрашиваем отдельно)
-      if (data.audio) {
-        await playAudio(data.audio);
-      } else {
-        await speak(data.reply);
-      }
     } catch (err) {
-      console.error('Ошибка MIPO Engine:', err);
+      console.error('MIPO Engine:', err);
       setMessages(prev => [...prev, {
         id: crypto.randomUUID(),
-        text: 'Сбой подключения к MIPO Engine. Проверьте, запущен ли mipo_engine.py на порту 8000.',
-        sender: 'jarvis',
-        timestamp: new Date(),
+        text: `Сбой подключения к серверу (${serverUrl}). Проверь, запущен ли Colab.`,
+        sender: 'jarvis', timestamp: new Date(),
       }]);
     } finally {
       setIsProcessing(false);
@@ -363,31 +306,39 @@ export default function MipoInterface() {
     }
   };
 
-  // ── ИНИЦИАЛИЗАЦИЯ ────────────────────────────────────────
+  // ── НАСТРОЙКИ СЕРВЕРА ────────────────────────────
+
+  const saveServerUrl = () => {
+    const trimmed = urlInput.trim().replace(/\/$/, ''); // убираем trailing slash
+    setServerUrl(trimmed);
+    localStorage.setItem(STORAGE_KEY_URL, trimmed);
+    setShowSettings(false);
+    setServerStatus('unknown');
+    checkServer(trimmed);
+  };
+
+  // ── ИНИЦИАЛИЗАЦИЯ ────────────────────────────────
 
   const initializeSystem = () => {
     initAudio();
     setInitialized(true);
-    playBeep('receive');
-
+    checkServer(serverUrl);
     navigator.geolocation?.getCurrentPosition(
       pos => setLocation(`${pos.coords.latitude.toFixed(2)}, ${pos.coords.longitude.toFixed(2)}`),
       () => setLocation('НЕДОСТУПНО')
     );
-
     setTimeout(() => {
       const initMsg: Message = {
         id: 'init',
-        text: 'Системы MIPO в сети. Локальный сервер подключён на порту 8000.',
-        sender: 'jarvis',
-        timestamp: new Date(),
+        text: 'Системы MIPO в сети. Подключаюсь к серверу...',
+        sender: 'jarvis', timestamp: new Date(),
       };
       setMessages(prev => prev.find(m => m.id === 'init') ? prev : [...prev, initMsg]);
       speak(initMsg.text);
-    }, 1000);
+    }, 800);
   };
 
-  // ── РЕНДЕР ───────────────────────────────────────────────
+  // ── РЕНДЕР ───────────────────────────────────────
 
   if (!initialized) {
     return (
@@ -406,6 +357,9 @@ export default function MipoInterface() {
     );
   }
 
+  const statusColor = serverStatus === 'online' ? 'text-green-400' : serverStatus === 'offline' ? 'text-red-400' : 'text-cyan-700';
+  const statusLabel = serverStatus === 'online' ? 'ОНЛАЙН' : serverStatus === 'offline' ? 'ОФЛАЙН' : 'MIPO:8000';
+
   return (
     <div className="min-h-screen bg-black text-cyan-400 flex flex-col p-4 gap-4 font-mono">
 
@@ -418,13 +372,18 @@ export default function MipoInterface() {
             <p className="text-[10px] text-cyan-600 tracking-[0.3em]">ИНТЕРФЕЙС MARK VII</p>
           </div>
         </div>
-        <div className="flex gap-6 text-[10px] md:text-xs">
+        <div className="flex items-center gap-6 text-[10px] md:text-xs">
           <div className="flex items-center gap-2 text-cyan-600">
             <Globe className="w-3 h-3" /><span>{location}</span>
           </div>
-          <div className="flex items-center gap-2 text-cyan-600">
-            <Wifi className="w-3 h-3" /><span>MIPO:8000</span>
-          </div>
+          <button
+            onClick={() => { setShowSettings(true); setUrlInput(serverUrl); }}
+            className="flex items-center gap-2 hover:text-cyan-300 transition-colors"
+          >
+            <Wifi className="w-3 h-3" />
+            <span className={statusColor}>{statusLabel}</span>
+            <Settings className="w-3 h-3 text-cyan-700" />
+          </button>
           <div className="flex items-center gap-2">
             <Activity className="w-3 h-3" />
             <span className={isSpeaking ? 'text-cyan-300 animate-pulse' : isProcessing ? 'text-yellow-500 animate-pulse' : 'text-cyan-700'}>
@@ -433,6 +392,60 @@ export default function MipoInterface() {
           </div>
         </div>
       </header>
+
+      {/* Модалка настроек */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.95 }}
+              className="bg-black border border-cyan-800/50 rounded-lg p-6 w-full max-w-md space-y-4"
+            >
+              <div className="flex justify-between items-center">
+                <h2 className="text-cyan-300 font-bold tracking-widest text-sm">НАСТРОЙКИ СЕРВЕРА</h2>
+                <button onClick={() => setShowSettings(false)} className="text-cyan-700 hover:text-cyan-400">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] text-cyan-600 tracking-widest">URL MIPO ENGINE</label>
+                <input
+                  type="text"
+                  value={urlInput}
+                  onChange={e => setUrlInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && saveServerUrl()}
+                  placeholder="https://xxxx.ngrok.io или http://localhost:8000"
+                  className="w-full bg-black/50 border border-cyan-800/50 text-cyan-100 text-sm px-3 py-2 rounded outline-none focus:border-cyan-500/70"
+                />
+                <p className="text-[10px] text-cyan-800">
+                  Для Colab вставь ngrok URL. Для локального — http://localhost:8000
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={saveServerUrl}
+                  className="flex items-center gap-2 px-4 py-2 border border-cyan-500/50 text-cyan-400 text-xs hover:bg-cyan-950/30 rounded transition-all"
+                >
+                  <Check className="w-3 h-3" /> СОХРАНИТЬ
+                </button>
+                <button
+                  onClick={() => { setUrlInput(DEFAULT_URL); }}
+                  className="px-4 py-2 border border-cyan-900/30 text-cyan-700 text-xs hover:text-cyan-500 rounded transition-all"
+                >
+                  СБРОСИТЬ
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Чат */}
       <main className="flex-1 flex flex-col bg-black/20 border border-cyan-900/30 rounded-lg backdrop-blur-sm overflow-hidden">
@@ -443,13 +456,9 @@ export default function MipoInterface() {
                 key={msg.id}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                className={cn(
-                  'flex flex-col max-w-[85%]',
-                  msg.sender === 'user' ? 'ml-auto items-end' : 'mr-auto items-start'
-                )}
+                className={cn('flex flex-col max-w-[85%]', msg.sender === 'user' ? 'ml-auto items-end' : 'mr-auto items-start')}
               >
-                <div className={cn(
-                  'px-4 py-3 rounded-lg border text-sm leading-relaxed',
+                <div className={cn('px-4 py-3 rounded-lg border text-sm leading-relaxed',
                   msg.sender === 'user'
                     ? 'bg-cyan-950/30 border-cyan-700/30 text-cyan-100'
                     : 'bg-black/40 border-cyan-900/30 text-cyan-300'
@@ -473,11 +482,8 @@ export default function MipoInterface() {
           <div className="flex items-center gap-3">
             <button
               onClick={toggleListening}
-              className={cn(
-                'p-3 rounded-full border transition-all',
-                isListening
-                  ? 'bg-red-950/30 border-red-500/50 text-red-400 animate-pulse'
-                  : 'bg-cyan-950/20 border-cyan-600/50 text-cyan-400 hover:bg-cyan-950/40'
+              className={cn('p-3 rounded-full border transition-all',
+                isListening ? 'bg-red-950/30 border-red-500/50 text-red-400 animate-pulse' : 'bg-cyan-950/20 border-cyan-600/50 text-cyan-400 hover:bg-cyan-950/40'
               )}
             >
               {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
@@ -487,9 +493,7 @@ export default function MipoInterface() {
               type="text"
               value={inputText}
               onChange={e => setInputText(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
-              }}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
               placeholder="Введите команду..."
               className="flex-1 bg-transparent border-b border-cyan-800/50 text-cyan-100 placeholder-cyan-800 text-sm py-2 px-1 outline-none focus:border-cyan-500/70 transition-colors"
             />
@@ -497,11 +501,8 @@ export default function MipoInterface() {
             <button
               onClick={() => handleSendMessage()}
               disabled={!inputText.trim() || isProcessing}
-              className={cn(
-                'p-3 rounded-full border transition-all',
-                inputText.trim() && !isProcessing
-                  ? 'bg-cyan-950/30 border-cyan-500/50 text-cyan-400 hover:bg-cyan-950/60'
-                  : 'border-cyan-900/30 text-cyan-900 cursor-not-allowed'
+              className={cn('p-3 rounded-full border transition-all',
+                inputText.trim() && !isProcessing ? 'bg-cyan-950/30 border-cyan-500/50 text-cyan-400 hover:bg-cyan-950/60' : 'border-cyan-900/30 text-cyan-900 cursor-not-allowed'
               )}
             >
               <Send className="w-5 h-5" />
