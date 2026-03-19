@@ -23,7 +23,7 @@ from llama_cpp import Llama
 # ─────────────────────────────────────────────
 
 # Если mipo_adapter.gguf — это merged модель (скорее всего так после Unsloth):
-MIPO_MODEL_PATH = "./mipo_adapter.gguf"
+MIPO_MODEL_PATH = "/mipo_adapter.gguf"
 
 # Если вдруг это отдельный LoRA адаптер, укажи путь к базовой модели:
 # BASE_MODEL_PATH = "/Qwen3-14B-Claude-4.5-Opus-Distill.q4_k_m.gguf"
