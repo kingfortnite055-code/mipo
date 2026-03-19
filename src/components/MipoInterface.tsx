@@ -1,42 +1,79 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Mic, MicOff, Send, Globe, Wifi, Activity,
   Settings, X, Check, Monitor, Shield, Search, Camera,
+  Eye, EyeOff, Volume2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+// ─────────────────────────────────────────────
+// ТИПЫ
+// ─────────────────────────────────────────────
 
 interface Message {
   id: string;
   text: string;
-  sender: 'user' | 'jarvis';
+  sender: 'user' | 'mipo';
   timestamp: Date;
-  screenshot?: string; // base64 PNG если есть скриншот
+  screenshot?: string; // base64 PNG
+  screenFrame?: string; // base64 JPEG — кадр экрана приложенный к сообщению
 }
+
+// Голоса Edge-TTS сгруппированные для UI
+const VOICE_OPTIONS = {
+  ru: [
+    { id: 'ru-RU-DmitryNeural',    label: 'Дмитрий (мужской)',   flag: '🇷🇺' },
+    { id: 'ru-RU-SvetlanaNeural',  label: 'Светлана (женский)',  flag: '🇷🇺' },
+    { id: 'ru-RU-DariyaNeural',    label: 'Дарья (женский)',     flag: '🇷🇺' },
+  ],
+  en: [
+    { id: 'en-US-ChristopherNeural', label: 'Christopher (male)',  flag: '🇺🇸' },
+    { id: 'en-US-JennyNeural',       label: 'Jenny (female)',      flag: '🇺🇸' },
+    { id: 'en-US-GuyNeural',         label: 'Guy (male)',          flag: '🇺🇸' },
+    { id: 'en-GB-RyanNeural',        label: 'Ryan UK (male)',      flag: '🇬🇧' },
+    { id: 'en-GB-SoniaNeural',       label: 'Sonia UK (female)',   flag: '🇬🇧' },
+  ],
+};
+
+// ─────────────────────────────────────────────
+// КОНСТАНТЫ
+// ─────────────────────────────────────────────
 
 const DEFAULT_ENGINE_URL = 'http://localhost:8000';
 const DEFAULT_BRIDGE_URL = 'http://localhost:3001';
 const KEY_ENGINE_URL     = 'mipo_engine_url';
 const KEY_BRIDGE_URL     = 'mipo_bridge_url';
 const KEY_HISTORY        = 'mipo_history';
+const KEY_VOICE          = 'mipo_voice';
 
-// ngrok-skip-browser-warning убирает предупреждение ngrok для API запросов
 const BASE_HEADERS: Record<string, string> = {
   'Content-Type': 'application/json',
   'ngrok-skip-browser-warning': 'true',
 };
 
+// ─────────────────────────────────────────────
+// КОМПОНЕНТ
+// ─────────────────────────────────────────────
+
 export default function MipoInterface() {
-  const [initialized, setInitialized]   = useState(false);
-  const [messages, setMessages]         = useState<Message[]>([]);
-  const [inputText, setInputText]       = useState('');
-  const [isListening, setIsListening]   = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isSpeaking, setIsSpeaking]     = useState(false);
-  const [location, setLocation]         = useState('НЕИЗВЕСТНО');
+  const [initialized, setInitialized]       = useState(false);
+  const [messages, setMessages]             = useState<Message[]>([]);
+  const [inputText, setInputText]           = useState('');
+  const [isListening, setIsListening]       = useState(false);
+  const [isProcessing, setIsProcessing]     = useState(false);
+  const [isSpeaking, setIsSpeaking]         = useState(false);
+  const [location, setLocation]             = useState('НЕИЗВЕСТНО');
   const [liveTranscript, setLiveTranscript] = useState('');
 
-  // URL серверов — читаем из localStorage
+  // Видение экрана
+  const [screenWatching, setScreenWatching]     = useState(false);   // захват активен
+  const [screenPreview, setScreenPreview]       = useState<string>(''); // последний кадр
+  const screenStreamRef = useRef<MediaStream | null>(null);
+  const screenVideoRef  = useRef<HTMLVideoElement | null>(null);
+  const screenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // URL серверов
   const [engineUrl, setEngineUrl] = useState(
     () => localStorage.getItem(KEY_ENGINE_URL) || DEFAULT_ENGINE_URL
   );
@@ -44,19 +81,25 @@ export default function MipoInterface() {
     () => localStorage.getItem(KEY_BRIDGE_URL) || DEFAULT_BRIDGE_URL
   );
 
+  // Голос
+  const [selectedVoice, setSelectedVoice] = useState(
+    () => localStorage.getItem(KEY_VOICE) || 'ru-RU-DmitryNeural'
+  );
+
   // Настройки
-  const [showSettings, setShowSettings] = useState(false);
-  const [engineInput, setEngineInput]   = useState(engineUrl);
-  const [bridgeInput, setBridgeInput]   = useState(bridgeUrl);
-  const [engineStatus, setEngineStatus] = useState<'unknown'|'online'|'offline'>('unknown');
-  const [bridgeStatus, setBridgeStatus] = useState<'unknown'|'online'|'offline'>('unknown');
+  const [showSettings, setShowSettings]   = useState(false);
+  const [settingsTab, setSettingsTab]     = useState<'servers' | 'voice'>('servers');
+  const [engineInput, setEngineInput]     = useState(engineUrl);
+  const [bridgeInput, setBridgeInput]     = useState(bridgeUrl);
+  const [engineStatus, setEngineStatus]   = useState<'unknown'|'online'|'offline'>('unknown');
+  const [bridgeStatus, setBridgeStatus]   = useState<'unknown'|'online'|'offline'>('unknown');
 
   // Refs
   const messagesEndRef      = useRef<HTMLDivElement>(null);
   const messagesRef         = useRef<Message[]>([]);
   const recognitionRef      = useRef<any>(null);
   const audioContextRef     = useRef<AudioContext | null>(null);
-  const canvasRef           = useRef<HTMLCanvasElement>(null);
+  const vizCanvasRef        = useRef<HTMLCanvasElement>(null);
   const visualizerStreamRef = useRef<MediaStream | null>(null);
   const visualizerAnimRef   = useRef<number>(0);
   const analyserRef         = useRef<AnalyserNode | null>(null);
@@ -83,8 +126,9 @@ export default function MipoInterface() {
   useEffect(() => {
     const save = () => {
       if (messagesRef.current.length > 0) {
-        // Не сохраняем скриншоты в localStorage (слишком тяжело)
-        const toSave = messagesRef.current.map(m => ({ ...m, screenshot: undefined }));
+        const toSave = messagesRef.current.map(m => ({
+          ...m, screenshot: undefined, screenFrame: undefined
+        }));
         localStorage.setItem(KEY_HISTORY, JSON.stringify(toSave));
       }
     };
@@ -113,17 +157,86 @@ export default function MipoInterface() {
     return () => clearInterval(t);
   }, [engineUrl, bridgeUrl, initialized]);
 
+  // ── ВИДЕНИЕ ЭКРАНА ───────────────────────────────
+
+  const captureScreenFrame = useCallback((): string | null => {
+    const video  = screenVideoRef.current;
+    const canvas = screenCanvasRef.current;
+    if (!video || !canvas || !screenWatching) return null;
+    if (video.readyState < 2) return null;
+
+    // Захватываем кадр 640×360 (достаточно для анализа, мало весит)
+    canvas.width  = 640;
+    canvas.height = 360;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, 640, 360);
+    // JPEG 60% — хороший баланс качество/размер
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+    return dataUrl.split(',')[1]; // возвращаем только base64 без префикса
+  }, [screenWatching]);
+
+  // Обновляем превью каждые 2 секунды
+  useEffect(() => {
+    if (!screenWatching) { setScreenPreview(''); return; }
+    const t = setInterval(() => {
+      const frame = captureScreenFrame();
+      if (frame) setScreenPreview(frame);
+    }, 2000);
+    return () => clearInterval(t);
+  }, [screenWatching, captureScreenFrame]);
+
+  const startScreenWatch = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 2, width: 1280, height: 720 },
+        audio: false,
+      });
+
+      // Создаём скрытый video элемент для захвата кадров
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.autoplay = true;
+      video.muted = true;
+      video.playsInline = true;
+      await video.play();
+
+      screenStreamRef.current = stream;
+      screenVideoRef.current  = video;
+
+      // Создаём offscreen canvas
+      const canvas = document.createElement('canvas');
+      screenCanvasRef.current = canvas;
+
+      stream.getVideoTracks()[0].addEventListener('ended', () => {
+        stopScreenWatch();
+      });
+
+      setScreenWatching(true);
+    } catch (err) {
+      console.error('Захват экрана не удался:', err);
+    }
+  };
+
+  const stopScreenWatch = () => {
+    screenStreamRef.current?.getTracks().forEach(t => t.stop());
+    screenStreamRef.current = null;
+    screenVideoRef.current  = null;
+    setScreenWatching(false);
+    setScreenPreview('');
+  };
+
   // ── SPEECH RECOGNITION ───────────────────────────
 
   useEffect(() => {
     if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) return;
     const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-    const r = new SR();
+    const r  = new SR();
     r.continuous = true; r.interimResults = true; r.lang = 'ru-RU';
     r.onresult = (e: any) => {
       if (!e.results?.length) return;
       const res = e.results[e.results.length - 1];
-      const t = res[0]?.transcript ?? '';
+      const t   = res[0]?.transcript ?? '';
       setLiveTranscript(t);
       if (res.isFinal) {
         setInputText(t);
@@ -139,7 +252,7 @@ export default function MipoInterface() {
     const h = (e: any) => handleSend(e.detail);
     window.addEventListener('mipo-voice', h);
     return () => window.removeEventListener('mipo-voice', h);
-  }, [isProcessing]);
+  }, [isProcessing, screenWatching]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -176,8 +289,8 @@ export default function MipoInterface() {
 
   const drawVisualizer = () => {
     visualizerAnimRef.current = requestAnimationFrame(drawVisualizer);
-    const canvas = canvasRef.current; if (!canvas) return;
-    const ctx = canvas.getContext('2d'); if (!ctx) return;
+    const canvas = vizCanvasRef.current; if (!canvas) return;
+    const ctx    = canvas.getContext('2d'); if (!ctx) return;
     let da = dataArrayRef.current;
     if (analyserRef.current && da) {
       analyserRef.current.getByteFrequencyData(da);
@@ -229,14 +342,14 @@ export default function MipoInterface() {
     visualizerStreamRef.current = null; analyserRef.current = null;
     if (!isSpeakingRef.current) {
       cancelAnimationFrame(visualizerAnimRef.current); visualizerAnimRef.current = 0;
-      canvasRef.current?.getContext('2d')?.clearRect(0, 0, 80, 80);
+      vizCanvasRef.current?.getContext('2d')?.clearRect(0, 0, 80, 80);
     }
   };
 
   const checkStopVisualizer = () => {
     if (!isSpeakingRef.current && !visualizerStreamRef.current) {
       cancelAnimationFrame(visualizerAnimRef.current); visualizerAnimRef.current = 0;
-      canvasRef.current?.getContext('2d')?.clearRect(0, 0, 80, 80);
+      vizCanvasRef.current?.getContext('2d')?.clearRect(0, 0, 80, 80);
     }
   };
 
@@ -258,7 +371,7 @@ export default function MipoInterface() {
     try {
       const r = await fetch(`${engineUrl}/api/tts`, {
         method: 'POST', headers: BASE_HEADERS,
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, voice: selectedVoice }),
       });
       if (!r.ok) throw new Error();
       const d = await r.json();
@@ -270,22 +383,26 @@ export default function MipoInterface() {
 
   // ── БЫСТРЫЕ КОМАНДЫ ──────────────────────────────
 
-  const quickScan = () => handleSend('Запусти антивирусную проверку моего компьютера');
+  const quickScan       = () => handleSend('Запусти антивирусную проверку моего компьютера');
   const quickScreenshot = () => handleSend('Сделай скриншот моего экрана');
-  const quickStats = () => handleSend('Покажи статистику системы — CPU, RAM, uptime');
+  const quickStats      = () => handleSend('Покажи статистику системы — CPU, RAM, uptime');
 
   // ── ОТПРАВКА СООБЩЕНИЯ ───────────────────────────
 
   const buildHistory = (msgs: Message[]) =>
-    msgs.slice(-20).map(m => ({ role: m.sender === 'user' ? 'user' : 'assistant', text: m.text }));
+    msgs.slice(-20).map(m => ({ role: m.sender === 'user' ? 'user' : 'mipo', text: m.text }));
 
   const handleSend = async (text: string = inputText) => {
     if (!text.trim() || isProcessing) return;
     setIsProcessing(true);
     playBeep('send');
 
+    // Захватываем текущий кадр экрана если видение активно
+    const screenFrame = captureScreenFrame();
+
     const userMsg: Message = {
       id: crypto.randomUUID(), text, sender: 'user', timestamp: new Date(),
+      screenFrame: screenFrame || undefined,
     };
     const history = buildHistory(messagesRef.current);
     setMessages(prev => [...prev, userMsg]);
@@ -295,10 +412,11 @@ export default function MipoInterface() {
       const r = await fetch(`${engineUrl}/api/chat`, {
         method: 'POST', headers: BASE_HEADERS,
         body: JSON.stringify({
-          message: text,
+          message:      text,
           history,
-          // Передаём bridge_url — engine использует его для действий на ПК
-          bridge_url: bridgeStatus === 'online' ? bridgeUrl : null,
+          bridge_url:   bridgeStatus === 'online' ? bridgeUrl : null,
+          voice:        selectedVoice,
+          screen_frame: screenFrame || null,  // base64 JPEG кадра экрана или null
         }),
       });
 
@@ -309,21 +427,20 @@ export default function MipoInterface() {
       const mipoMsg: Message = {
         id: crypto.randomUUID(),
         text: data.reply,
-        sender: 'jarvis',
+        sender: 'mipo',
         timestamp: new Date(),
-        screenshot: data.screenshot || undefined, // скриншот если есть
+        screenshot: data.screenshot || undefined,
       };
       setMessages(prev => [...prev, mipoMsg]);
 
-      // Воспроизводим аудио
       if (data.audio) await playBase64Audio(data.audio);
       else await speak(data.reply);
 
-    } catch (err) {
+    } catch {
       setMessages(prev => [...prev, {
         id: crypto.randomUUID(),
         text: `Сбой подключения к MIPO Engine (${engineUrl}). Проверь что Colab запущен и URL актуален.`,
-        sender: 'jarvis',
+        sender: 'mipo',
         timestamp: new Date(),
       }]);
     } finally {
@@ -356,6 +473,11 @@ export default function MipoInterface() {
     pingServer(bri, setBridgeStatus);
   };
 
+  const saveVoice = (voiceId: string) => {
+    setSelectedVoice(voiceId);
+    localStorage.setItem(KEY_VOICE, voiceId);
+  };
+
   // ── ИНИЦИАЛИЗАЦИЯ ────────────────────────────────
 
   const initializeSystem = () => {
@@ -369,14 +491,12 @@ export default function MipoInterface() {
     setTimeout(() => {
       const msg: Message = {
         id: 'init', text: 'Системы MIPO в сети. Готов к работе.',
-        sender: 'jarvis', timestamp: new Date(),
+        sender: 'mipo', timestamp: new Date(),
       };
       setMessages(prev => prev.find(m => m.id === 'init') ? prev : [...prev, msg]);
       speak(msg.text);
     }, 800);
   };
-
-  // ── ХЕЛПЕРЫ ──────────────────────────────────────
 
   const sc = (s: string) =>
     s === 'online' ? 'text-green-400' : s === 'offline' ? 'text-red-400' : 'text-cyan-700';
@@ -386,12 +506,21 @@ export default function MipoInterface() {
   if (!initialized) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="text-center space-y-6">
-          <div className="text-cyan-400 text-6xl font-bold tracking-widest">MIPO</div>
-          <div className="text-cyan-600 text-sm tracking-[0.4em]">ИНТЕРФЕЙС MARK VII</div>
+        <div className="text-center space-y-8">
+          <div>
+            <div className="text-cyan-400 text-7xl font-bold tracking-widest mb-2">MIPO</div>
+            <div className="text-cyan-700 text-xs tracking-[0.5em]">ПЕРСОНАЛЬНЫЙ ИИ-АССИСТЕНТ</div>
+          </div>
+          <div className="text-[10px] text-cyan-800 space-y-1">
+            <div>● Голосовое управление</div>
+            <div>● Видение вашего экрана</div>
+            <div>● Управление компьютером</div>
+            <div>● Поиск в интернете</div>
+            <div>● Антивирусная защита</div>
+          </div>
           <button
             onClick={initializeSystem}
-            className="px-8 py-3 border border-cyan-500/50 text-cyan-400 text-sm tracking-widest hover:bg-cyan-950/30 transition-all"
+            className="px-10 py-4 border border-cyan-500/50 text-cyan-400 text-sm tracking-[0.3em] hover:bg-cyan-950/30 hover:border-cyan-400/70 transition-all"
           >
             ИНИЦИАЛИЗАЦИЯ
           </button>
@@ -403,152 +532,284 @@ export default function MipoInterface() {
   // ── ОСНОВНОЙ РЕНДЕР ──────────────────────────────
 
   return (
-    <div className="min-h-screen bg-black text-cyan-400 flex flex-col p-4 gap-4 font-mono">
+    <div className="min-h-screen bg-black text-cyan-400 flex flex-col p-4 gap-3 font-mono">
 
       {/* Шапка */}
       <header className="flex items-center justify-between border-b border-cyan-900/30 pb-3">
         <div className="flex items-center gap-4">
-          <canvas ref={canvasRef} width={80} height={80} className="opacity-80" />
+          <canvas ref={vizCanvasRef} width={80} height={80} className="opacity-80 flex-shrink-0" />
           <div>
             <h1 className="text-2xl font-bold tracking-widest text-cyan-100">MIPO</h1>
-            <p className="text-[10px] text-cyan-600 tracking-[0.3em]">ИНТЕРФЕЙС MARK VII</p>
+            <div className="text-[10px] text-cyan-700 tracking-[0.2em] mt-0.5">
+              {screenWatching
+                ? <span className="text-green-500 animate-pulse">● ВИДЕНИЕ ЭКРАНА АКТИВНО</span>
+                : <span>ИНТЕРФЕЙС MARK VII</span>
+              }
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-4 text-[10px] md:text-xs">
-          <div className="flex items-center gap-1 text-cyan-700">
+
+        <div className="flex items-center gap-3 text-[10px] md:text-xs flex-wrap justify-end">
+          <div className="flex items-center gap-1 text-cyan-800">
             <Globe className="w-3 h-3" /><span>{location}</span>
           </div>
+
+          {/* Кнопка видения экрана */}
           <button
-            onClick={() => { setShowSettings(true); setEngineInput(engineUrl); setBridgeInput(bridgeUrl); }}
+            onClick={screenWatching ? stopScreenWatch : startScreenWatch}
+            className={cn(
+              'flex items-center gap-1 px-2 py-1 rounded border transition-all',
+              screenWatching
+                ? 'border-green-500/50 text-green-400 bg-green-950/20 animate-pulse'
+                : 'border-cyan-900/50 text-cyan-700 hover:text-cyan-400'
+            )}
+            title={screenWatching ? 'Остановить видение экрана' : 'Включить видение экрана'}
+          >
+            {screenWatching ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+            <span>{screenWatching ? 'ЭКРАН ●' : 'ЭКРАН'}</span>
+          </button>
+
+          {/* Engine статус */}
+          <button
+            onClick={() => { setShowSettings(true); setSettingsTab('servers'); setEngineInput(engineUrl); setBridgeInput(bridgeUrl); }}
             className="flex items-center gap-1 hover:text-cyan-300 transition-colors"
           >
             <Wifi className="w-3 h-3" />
             <span className={sc(engineStatus)}>ENGINE {engineStatus==='online'?'●':engineStatus==='offline'?'○':'…'}</span>
           </button>
+
+          {/* Bridge статус */}
           <button
-            onClick={() => { setShowSettings(true); setEngineInput(engineUrl); setBridgeInput(bridgeUrl); }}
+            onClick={() => { setShowSettings(true); setSettingsTab('servers'); setEngineInput(engineUrl); setBridgeInput(bridgeUrl); }}
             className="flex items-center gap-1 hover:text-cyan-300 transition-colors"
           >
             <Monitor className="w-3 h-3" />
             <span className={sc(bridgeStatus)}>BRIDGE {bridgeStatus==='online'?'●':bridgeStatus==='offline'?'○':'…'}</span>
-            <Settings className="w-3 h-3 text-cyan-800" />
           </button>
+
+          {/* Голос */}
+          <button
+            onClick={() => { setShowSettings(true); setSettingsTab('voice'); }}
+            className="flex items-center gap-1 hover:text-cyan-300 transition-colors"
+            title="Выбор голоса"
+          >
+            <Volume2 className="w-3 h-3" />
+            <span className="text-cyan-700 max-w-[80px] truncate">
+              {[...VOICE_OPTIONS.ru, ...VOICE_OPTIONS.en].find(v => v.id === selectedVoice)?.label?.split(' ')[0] || 'ГОЛОС'}
+            </span>
+          </button>
+
+          <button
+            onClick={() => { setShowSettings(true); setSettingsTab('servers'); setEngineInput(engineUrl); setBridgeInput(bridgeUrl); }}
+            className="text-cyan-800 hover:text-cyan-600 transition-colors"
+          >
+            <Settings className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Статус обработки */}
           <div className="flex items-center gap-1">
             <Activity className="w-3 h-3" />
-            <span className={isSpeaking ? 'text-cyan-300 animate-pulse' : isProcessing ? 'text-yellow-500 animate-pulse' : 'text-cyan-700'}>
+            <span className={isSpeaking ? 'text-cyan-300 animate-pulse' : isProcessing ? 'text-yellow-500 animate-pulse' : 'text-cyan-800'}>
               {isSpeaking ? 'РЕЧЬ' : isProcessing ? 'ОБРАБОТКА' : 'ОЖИДАНИЕ'}
             </span>
           </div>
         </div>
       </header>
 
-      {/* Модалка настроек */}
+      {/* Превью экрана (если активно) */}
+      {screenWatching && screenPreview && (
+        <div className="relative border border-green-900/50 rounded overflow-hidden bg-black/50">
+          <div className="absolute top-1 left-2 text-[9px] text-green-600 z-10 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block" />
+            ВИДЕНИЕ ЭКРАНА — MIPO ВИДИТ ЭТО
+          </div>
+          <img
+            src={`data:image/jpeg;base64,${screenPreview}`}
+            alt="Screen preview"
+            className="w-full max-h-32 object-contain opacity-60"
+          />
+        </div>
+      )}
+
+      {/* Настройки */}
       <AnimatePresence>
         {showSettings && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4"
           >
             <motion.div
               initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-              className="bg-black border border-cyan-800/50 rounded-lg p-6 w-full max-w-md space-y-5"
+              className="bg-black border border-cyan-800/50 rounded-lg p-6 w-full max-w-md"
             >
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center mb-5">
                 <h2 className="text-cyan-300 font-bold tracking-widest text-sm">НАСТРОЙКИ</h2>
                 <button onClick={() => setShowSettings(false)} className="text-cyan-700 hover:text-cyan-400">
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] text-cyan-600 tracking-widest flex items-center gap-2">
-                  <Wifi className="w-3 h-3" /> MIPO ENGINE (Colab)
-                  <span className={`ml-auto ${sc(engineStatus)}`}>
-                    {engineStatus==='online'?'ОНЛАЙН':engineStatus==='offline'?'ОФЛАЙН':'...'}
-                  </span>
-                </label>
-                <input
-                  type="text" value={engineInput} onChange={e => setEngineInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && saveSettings()}
-                  placeholder="https://xxxx.ngrok.io"
-                  className="w-full bg-black/50 border border-cyan-800/50 text-cyan-100 text-sm px-3 py-2 rounded outline-none focus:border-cyan-500/70"
-                />
+              {/* Вкладки */}
+              <div className="flex gap-1 mb-5">
+                {(['servers', 'voice'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setSettingsTab(tab)}
+                    className={cn(
+                      'flex-1 py-1.5 text-[10px] tracking-widest border rounded transition-all',
+                      settingsTab === tab
+                        ? 'border-cyan-500/60 text-cyan-300 bg-cyan-950/30'
+                        : 'border-cyan-900/30 text-cyan-700 hover:text-cyan-500'
+                    )}
+                  >
+                    {tab === 'servers' ? 'СЕРВЕРЫ' : 'ГОЛОС'}
+                  </button>
+                ))}
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] text-cyan-600 tracking-widest flex items-center gap-2">
-                  <Monitor className="w-3 h-3" /> LOCAL BRIDGE (ПК)
-                  <span className={`ml-auto ${sc(bridgeStatus)}`}>
-                    {bridgeStatus==='online'?'ОНЛАЙН':bridgeStatus==='offline'?'ОФЛАЙН':'...'}
-                  </span>
-                </label>
-                <input
-                  type="text" value={bridgeInput} onChange={e => setBridgeInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && saveSettings()}
-                  placeholder="http://localhost:3001"
-                  className="w-full bg-black/50 border border-cyan-800/50 text-cyan-100 text-sm px-3 py-2 rounded outline-none focus:border-cyan-500/70"
-                />
-                <p className="text-[10px] text-cyan-800">
-                  Запусти <code className="text-cyan-600">node local-bridge.cjs</code> на своём ПК
-                </p>
-              </div>
+              {/* Вкладка Серверы */}
+              {settingsTab === 'servers' && (
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-cyan-600 tracking-widest flex items-center gap-2">
+                      <Wifi className="w-3 h-3" /> MIPO ENGINE (Colab)
+                      <span className={`ml-auto ${sc(engineStatus)}`}>
+                        {engineStatus==='online'?'ОНЛАЙН':engineStatus==='offline'?'ОФЛАЙН':'...'}
+                      </span>
+                    </label>
+                    <input
+                      type="text" value={engineInput} onChange={e => setEngineInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && saveSettings()}
+                      placeholder="https://xxxx.ngrok.io"
+                      className="w-full bg-black/50 border border-cyan-800/50 text-cyan-100 text-sm px-3 py-2 rounded outline-none focus:border-cyan-500/70"
+                    />
+                  </div>
 
-              <div className="flex gap-3">
-                <button
-                  onClick={saveSettings}
-                  className="flex items-center gap-2 px-4 py-2 border border-cyan-500/50 text-cyan-400 text-xs hover:bg-cyan-950/30 rounded transition-all"
-                >
-                  <Check className="w-3 h-3" /> СОХРАНИТЬ
-                </button>
-                <button
-                  onClick={() => { setEngineInput(DEFAULT_ENGINE_URL); setBridgeInput(DEFAULT_BRIDGE_URL); }}
-                  className="px-4 py-2 border border-cyan-900/30 text-cyan-700 text-xs hover:text-cyan-500 rounded transition-all"
-                >
-                  СБРОСИТЬ
-                </button>
-              </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-cyan-600 tracking-widest flex items-center gap-2">
+                      <Monitor className="w-3 h-3" /> LOCAL BRIDGE (ПК)
+                      <span className={`ml-auto ${sc(bridgeStatus)}`}>
+                        {bridgeStatus==='online'?'ОНЛАЙН':bridgeStatus==='offline'?'ОФЛАЙН':'...'}
+                      </span>
+                    </label>
+                    <input
+                      type="text" value={bridgeInput} onChange={e => setBridgeInput(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && saveSettings()}
+                      placeholder="http://localhost:3001"
+                      className="w-full bg-black/50 border border-cyan-800/50 text-cyan-100 text-sm px-3 py-2 rounded outline-none focus:border-cyan-500/70"
+                    />
+                    <p className="text-[10px] text-cyan-800">
+                      Запусти <code className="text-cyan-600">node local-bridge.cjs</code> на ПК
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3 pt-1">
+                    <button onClick={saveSettings}
+                      className="flex items-center gap-2 px-4 py-2 border border-cyan-500/50 text-cyan-400 text-xs hover:bg-cyan-950/30 rounded transition-all">
+                      <Check className="w-3 h-3" /> СОХРАНИТЬ
+                    </button>
+                    <button onClick={() => { setEngineInput(DEFAULT_ENGINE_URL); setBridgeInput(DEFAULT_BRIDGE_URL); }}
+                      className="px-4 py-2 border border-cyan-900/30 text-cyan-700 text-xs hover:text-cyan-500 rounded transition-all">
+                      СБРОСИТЬ
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Вкладка Голос */}
+              {settingsTab === 'voice' && (
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-[10px] text-cyan-600 tracking-widest mb-2">🇷🇺 РУССКИЕ ГОЛОСА</div>
+                    <div className="space-y-1.5">
+                      {VOICE_OPTIONS.ru.map(v => (
+                        <button key={v.id} onClick={() => saveVoice(v.id)}
+                          className={cn(
+                            'w-full text-left px-3 py-2 rounded border text-xs transition-all flex items-center gap-2',
+                            selectedVoice === v.id
+                              ? 'border-cyan-500/60 text-cyan-200 bg-cyan-950/40'
+                              : 'border-cyan-900/30 text-cyan-700 hover:border-cyan-800/50 hover:text-cyan-500'
+                          )}>
+                          <span>{v.flag}</span>
+                          <span>{v.label}</span>
+                          {selectedVoice === v.id && <span className="ml-auto text-cyan-500 text-[10px]">● активен</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-[10px] text-cyan-600 tracking-widest mb-2">🇺🇸 АНГЛИЙСКИЕ ГОЛОСА</div>
+                    <div className="space-y-1.5">
+                      {VOICE_OPTIONS.en.map(v => (
+                        <button key={v.id} onClick={() => saveVoice(v.id)}
+                          className={cn(
+                            'w-full text-left px-3 py-2 rounded border text-xs transition-all flex items-center gap-2',
+                            selectedVoice === v.id
+                              ? 'border-cyan-500/60 text-cyan-200 bg-cyan-950/40'
+                              : 'border-cyan-900/30 text-cyan-700 hover:border-cyan-800/50 hover:text-cyan-500'
+                          )}>
+                          <span>{v.flag}</span>
+                          <span>{v.label}</span>
+                          {selectedVoice === v.id && <span className="ml-auto text-cyan-500 text-[10px]">● активен</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => speak('Привет! Я MIPO, ваш персональный ассистент. Как дела?')}
+                    disabled={isSpeaking}
+                    className="w-full py-2 border border-cyan-900/30 text-cyan-700 text-xs hover:text-cyan-500 rounded transition-all disabled:opacity-40"
+                  >
+                    🔊 ПРОВЕРИТЬ ГОЛОС
+                  </button>
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Быстрые действия (только если bridge онлайн) */}
-      {bridgeStatus === 'online' && (
-        <div className="flex gap-2">
-          <button
-            onClick={quickScan}
-            disabled={isProcessing}
-            className="flex items-center gap-1 px-3 py-1.5 border border-red-900/50 text-red-400 text-[10px] hover:bg-red-950/20 rounded transition-all disabled:opacity-40"
-          >
-            <Shield className="w-3 h-3" /> СКАНИРОВАНИЕ
-          </button>
-          <button
-            onClick={quickScreenshot}
-            disabled={isProcessing}
-            className="flex items-center gap-1 px-3 py-1.5 border border-cyan-900/50 text-cyan-600 text-[10px] hover:bg-cyan-950/20 rounded transition-all disabled:opacity-40"
-          >
-            <Camera className="w-3 h-3" /> СКРИНШОТ
-          </button>
-          <button
-            onClick={quickStats}
-            disabled={isProcessing}
-            className="flex items-center gap-1 px-3 py-1.5 border border-cyan-900/50 text-cyan-600 text-[10px] hover:bg-cyan-950/20 rounded transition-all disabled:opacity-40"
-          >
-            <Activity className="w-3 h-3" /> СТАТИСТИКА
-          </button>
-          <button
-            onClick={() => handleSend('Найди в интернете последние новости технологий')}
-            disabled={isProcessing}
-            className="flex items-center gap-1 px-3 py-1.5 border border-cyan-900/50 text-cyan-600 text-[10px] hover:bg-cyan-950/20 rounded transition-all disabled:opacity-40"
-          >
+      {/* Быстрые действия */}
+      {(bridgeStatus === 'online' || true) && (
+        <div className="flex gap-2 flex-wrap">
+          {bridgeStatus === 'online' && (
+            <>
+              <button onClick={quickScan} disabled={isProcessing}
+                className="flex items-center gap-1 px-3 py-1.5 border border-red-900/50 text-red-500 text-[10px] hover:bg-red-950/20 rounded transition-all disabled:opacity-40">
+                <Shield className="w-3 h-3" /> СКАНИРОВАНИЕ
+              </button>
+              <button onClick={quickScreenshot} disabled={isProcessing}
+                className="flex items-center gap-1 px-3 py-1.5 border border-cyan-900/50 text-cyan-700 text-[10px] hover:bg-cyan-950/20 rounded transition-all disabled:opacity-40">
+                <Camera className="w-3 h-3" /> СКРИНШОТ
+              </button>
+              <button onClick={quickStats} disabled={isProcessing}
+                className="flex items-center gap-1 px-3 py-1.5 border border-cyan-900/50 text-cyan-700 text-[10px] hover:bg-cyan-950/20 rounded transition-all disabled:opacity-40">
+                <Activity className="w-3 h-3" /> СТАТИСТИКА
+              </button>
+            </>
+          )}
+          <button onClick={() => handleSend('Найди в интернете последние новости технологий')} disabled={isProcessing}
+            className="flex items-center gap-1 px-3 py-1.5 border border-cyan-900/50 text-cyan-700 text-[10px] hover:bg-cyan-950/20 rounded transition-all disabled:opacity-40">
             <Search className="w-3 h-3" /> ПОИСК
+          </button>
+          <button onClick={screenWatching ? stopScreenWatch : startScreenWatch}
+            className={cn(
+              'flex items-center gap-1 px-3 py-1.5 border text-[10px] rounded transition-all',
+              screenWatching
+                ? 'border-green-700/50 text-green-500 hover:bg-green-950/20'
+                : 'border-cyan-900/50 text-cyan-700 hover:bg-cyan-950/20'
+            )}>
+            {screenWatching ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+            {screenWatching ? 'ВЫКЛ ЭКРАН' : 'СМОТРЕТЬ ЭКРАН'}
           </button>
         </div>
       )}
 
       {/* Чат */}
-      <main className="flex-1 flex flex-col bg-black/20 border border-cyan-900/30 rounded-lg backdrop-blur-sm overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
+      <main className="flex-1 flex flex-col bg-black/20 border border-cyan-900/30 rounded-lg backdrop-blur-sm overflow-hidden min-h-0">
+        <div className="flex-1 overflow-y-auto p-4 md:p-5 space-y-4">
           <AnimatePresence>
             {messages.map(msg => (
               <motion.div
@@ -565,15 +826,26 @@ export default function MipoInterface() {
                     ? 'bg-cyan-950/30 border-cyan-700/30 text-cyan-100'
                     : 'bg-black/40 border-cyan-900/30 text-cyan-300'
                 )}>
-                  {/* Текст сообщения */}
                   <span className="whitespace-pre-wrap">{msg.text}</span>
 
-                  {/* Скриншот если есть */}
+                  {/* Кадр экрана который был отправлен вместе с сообщением */}
+                  {msg.screenFrame && (
+                    <div className="mt-2 opacity-50">
+                      <img
+                        src={`data:image/jpeg;base64,${msg.screenFrame}`}
+                        alt="Screen frame sent"
+                        className="max-w-[200px] rounded border border-green-900/30"
+                      />
+                      <p className="text-[9px] text-green-800 mt-0.5">экран отправлен MIPO</p>
+                    </div>
+                  )}
+
+                  {/* Скриншот сделанный MIPO через bridge */}
                   {msg.screenshot && (
                     <div className="mt-3">
                       <img
                         src={`data:image/png;base64,${msg.screenshot}`}
-                        alt="Скриншот экрана"
+                        alt="Скриншот"
                         className="max-w-full rounded border border-cyan-900/30 cursor-pointer hover:opacity-90 transition-opacity"
                         onClick={() => {
                           const w = window.open();
@@ -584,7 +856,7 @@ export default function MipoInterface() {
                     </div>
                   )}
                 </div>
-                <span className="text-[10px] text-cyan-800 mt-1">
+                <span className="text-[10px] text-cyan-900 mt-1">
                   {msg.timestamp.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </motion.div>
@@ -594,41 +866,33 @@ export default function MipoInterface() {
         </div>
 
         {/* Строка ввода */}
-        <div className="p-4 border-t border-cyan-900/30 bg-black/40">
+        <div className="p-4 border-t border-cyan-900/30 bg-black/40 flex-shrink-0">
           {liveTranscript && (
             <div className="text-xs text-cyan-600 italic mb-2 px-1">🎙 {liveTranscript}</div>
           )}
           <div className="flex items-center gap-3">
-            <button
-              onClick={toggleListening}
-              className={cn(
-                'p-3 rounded-full border transition-all',
+            <button onClick={toggleListening}
+              className={cn('p-3 rounded-full border transition-all flex-shrink-0',
                 isListening
                   ? 'bg-red-950/30 border-red-500/50 text-red-400 animate-pulse'
                   : 'bg-cyan-950/20 border-cyan-600/50 text-cyan-400 hover:bg-cyan-950/40'
-              )}
-            >
+              )}>
               {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
             </button>
 
-            <input
-              type="text" value={inputText}
+            <input type="text" value={inputText}
               onChange={e => setInputText(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-              placeholder="Введите команду или вопрос..."
+              placeholder={screenWatching ? 'MIPO видит ваш экран. Задайте вопрос...' : 'Введите команду или вопрос...'}
               className="flex-1 bg-transparent border-b border-cyan-800/50 text-cyan-100 placeholder-cyan-800 text-sm py-2 px-1 outline-none focus:border-cyan-500/70 transition-colors"
             />
 
-            <button
-              onClick={() => handleSend()}
-              disabled={!inputText.trim() || isProcessing}
-              className={cn(
-                'p-3 rounded-full border transition-all',
+            <button onClick={() => handleSend()} disabled={!inputText.trim() || isProcessing}
+              className={cn('p-3 rounded-full border transition-all flex-shrink-0',
                 inputText.trim() && !isProcessing
                   ? 'bg-cyan-950/30 border-cyan-500/50 text-cyan-400 hover:bg-cyan-950/60'
                   : 'border-cyan-900/30 text-cyan-900 cursor-not-allowed'
-              )}
-            >
+              )}>
               <Send className="w-5 h-5" />
             </button>
           </div>
