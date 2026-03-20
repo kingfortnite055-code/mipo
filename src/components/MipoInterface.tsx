@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   Mic, MicOff, Send, Globe, Wifi, Activity,
   Settings, X, Check, Monitor, Shield, Search, Camera,
-  Eye, EyeOff, Volume2,
+  Eye, EyeOff, Volume2, Cpu, HardDrive, Clock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -16,11 +16,21 @@ interface Message {
   text: string;
   sender: 'user' | 'mipo';
   timestamp: Date;
-  screenshot?: string; // base64 PNG
-  screenFrame?: string; // base64 JPEG — кадр экрана приложенный к сообщению
+  screenshot?: string;
+  screenFrame?: string;
 }
 
-// Голоса Edge-TTS сгруппированные для UI
+interface SystemStats {
+  cpu: number;
+  ram: number;
+  totalMem: string;
+  freeMem: string;
+  uptime: number;
+  hostname: string;
+  cpuModel: string;
+  cpuCores: number;
+}
+
 const VOICE_OPTIONS = {
   ru: [
     { id: 'ru-RU-DmitryNeural',    label: 'Дмитрий (мужской)',   flag: '🇷🇺' },
@@ -53,7 +63,136 @@ const BASE_HEADERS: Record<string, string> = {
 };
 
 // ─────────────────────────────────────────────
-// КОМПОНЕНТ
+// SYSTEM MONITOR
+// ─────────────────────────────────────────────
+
+function SystemMonitor({ bridgeUrl, bridgeStatus }: {
+  bridgeUrl: string;
+  bridgeStatus: 'unknown' | 'online' | 'offline';
+}) {
+  const [stats, setStats]       = useState<SystemStats | null>(null);
+  const [history, setHistory]   = useState<{ cpu: number; ram: number }[]>([]);
+  const [expanded, setExpanded] = useState(false);
+  const intervalRef             = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchStats = useCallback(async () => {
+    if (bridgeStatus !== 'online') return;
+    try {
+      const r = await fetch(`${bridgeUrl}/stats`, {
+        headers: BASE_HEADERS,
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!r.ok) return;
+      const data: SystemStats = await r.json();
+      setStats(data);
+      setHistory(prev => [...prev.slice(-29), { cpu: data.cpu, ram: data.ram }]);
+    } catch {}
+  }, [bridgeUrl, bridgeStatus]);
+
+  useEffect(() => {
+    if (bridgeStatus !== 'online') { setStats(null); return; }
+    fetchStats();
+    intervalRef.current = setInterval(fetchStats, 3000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [bridgeUrl, bridgeStatus, fetchStats]);
+
+  if (bridgeStatus !== 'online' || !stats) return null;
+
+  const cpuColor = stats.cpu > 80 ? 'text-red-400'  : stats.cpu > 50 ? 'text-yellow-500' : 'text-green-400';
+  const ramColor = stats.ram > 85 ? 'text-red-400'  : stats.ram > 60 ? 'text-yellow-500' : 'text-green-400';
+  const cpuBg    = stats.cpu > 80 ? 'bg-red-400'    : stats.cpu > 50 ? 'bg-yellow-500'   : 'bg-green-400';
+  const ramBg    = stats.ram > 85 ? 'bg-red-400'    : stats.ram > 60 ? 'bg-yellow-500'   : 'bg-green-400';
+  const upH      = Math.floor(stats.uptime / 60);
+  const upM      = stats.uptime % 60;
+  const uptimeStr = upH > 0 ? `${upH}ч ${upM}м` : `${upM}м`;
+
+  return (
+    <div className="border border-cyan-900/30 rounded-lg bg-black/20 overflow-hidden">
+      {/* Строка-заголовок — всегда видна */}
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center gap-3 px-3 py-2 hover:bg-cyan-950/10 transition-colors"
+      >
+        <Activity className="w-3 h-3 text-cyan-800 flex-shrink-0" />
+
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] text-cyan-900">CPU</span>
+          <div className="w-14 h-1.5 bg-cyan-950/50 rounded-full overflow-hidden">
+            <div className={cn('h-full rounded-full transition-all duration-500', cpuBg)} style={{ width: `${stats.cpu}%`, opacity: 0.8 }} />
+          </div>
+          <span className={cn('text-[10px] font-mono w-7', cpuColor)}>{stats.cpu}%</span>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] text-cyan-900">RAM</span>
+          <div className="w-14 h-1.5 bg-cyan-950/50 rounded-full overflow-hidden">
+            <div className={cn('h-full rounded-full transition-all duration-500', ramBg)} style={{ width: `${stats.ram}%`, opacity: 0.8 }} />
+          </div>
+          <span className={cn('text-[10px] font-mono w-7', ramColor)}>{stats.ram}%</span>
+        </div>
+
+        <span className="text-[10px] text-cyan-900 ml-auto hidden sm:block truncate max-w-[120px]">{stats.hostname}</span>
+        <span className={cn('text-[9px] text-cyan-900 transition-transform inline-block', expanded && 'rotate-180')}>▼</span>
+      </button>
+
+      {/* Расширенная панель */}
+      {expanded && (
+        <div className="px-3 pb-3 space-y-3 border-t border-cyan-900/20 pt-2.5">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="border border-cyan-900/25 rounded p-2 space-y-1">
+              <div className="flex items-center gap-1 text-[10px] text-cyan-800"><Cpu className="w-3 h-3" /> CPU</div>
+              <div className={cn('text-lg font-bold font-mono', cpuColor)}>{stats.cpu}%</div>
+              <div className="text-[9px] text-cyan-900">{stats.cpuCores} ядер</div>
+            </div>
+            <div className="border border-cyan-900/25 rounded p-2 space-y-1">
+              <div className="flex items-center gap-1 text-[10px] text-cyan-800"><HardDrive className="w-3 h-3" /> RAM</div>
+              <div className={cn('text-lg font-bold font-mono', ramColor)}>{stats.ram}%</div>
+              <div className="text-[9px] text-cyan-900">{stats.freeMem} GB свободно</div>
+            </div>
+          </div>
+
+          {history.length > 1 && (
+            <div>
+              <div className="text-[9px] text-cyan-900 mb-1 tracking-widest">ИСТОРИЯ (30с)</div>
+              <svg width="100%" height="32" viewBox={`0 0 ${history.length * 4} 32`} preserveAspectRatio="none">
+                <polyline
+                  points={history.map((h, i) => `${i * 4},${32 - (h.cpu / 100) * 32}`).join(' ')}
+                  fill="none" stroke="rgba(6,182,212,0.6)" strokeWidth="1"
+                />
+                <polyline
+                  points={history.map((h, i) => `${i * 4},${32 - (h.ram / 100) * 32}`).join(' ')}
+                  fill="none" stroke="rgba(234,179,8,0.4)" strokeWidth="1"
+                />
+              </svg>
+              <div className="flex gap-3 mt-0.5">
+                <span className="text-[9px] text-cyan-800">— CPU</span>
+                <span className="text-[9px] text-yellow-800">— RAM</span>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-1 text-[10px]">
+            <div className="flex justify-between text-cyan-900">
+              <span>Процессор</span>
+              <span className="text-cyan-800 text-right max-w-[180px] truncate">{stats.cpuModel}</span>
+            </div>
+            <div className="flex justify-between text-cyan-900">
+              <span>Память</span>
+              <span className="text-cyan-800">{stats.freeMem} / {stats.totalMem} GB</span>
+            </div>
+            <div className="flex justify-between text-cyan-900">
+              <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Uptime</span>
+              <span className="text-cyan-800">{uptimeStr}</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// ГЛАВНЫЙ КОМПОНЕНТ
 // ─────────────────────────────────────────────
 
 export default function MipoInterface() {
@@ -67,8 +206,8 @@ export default function MipoInterface() {
   const [liveTranscript, setLiveTranscript] = useState('');
 
   // Видение экрана
-  const [screenWatching, setScreenWatching]     = useState(false);   // захват активен
-  const [screenPreview, setScreenPreview]       = useState<string>(''); // последний кадр
+  const [screenWatching, setScreenWatching]     = useState(false);
+  const [screenPreview, setScreenPreview]       = useState<string>('');
   const screenStreamRef = useRef<MediaStream | null>(null);
   const screenVideoRef  = useRef<HTMLVideoElement | null>(null);
   const screenCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -164,19 +303,15 @@ export default function MipoInterface() {
     const canvas = screenCanvasRef.current;
     if (!video || !canvas || !screenWatching) return null;
     if (video.readyState < 2) return null;
-
-    // Захватываем кадр 640×360 (достаточно для анализа, мало весит)
     canvas.width  = 640;
     canvas.height = 360;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
     ctx.drawImage(video, 0, 0, 640, 360);
-    // JPEG 60% — хороший баланс качество/размер
     const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-    return dataUrl.split(',')[1]; // возвращаем только base64 без префикса
+    return dataUrl.split(',')[1];
   }, [screenWatching]);
 
-  // Обновляем превью каждые 2 секунды
   useEffect(() => {
     if (!screenWatching) { setScreenPreview(''); return; }
     const t = setInterval(() => {
@@ -192,26 +327,16 @@ export default function MipoInterface() {
         video: { frameRate: 2, width: 1280, height: 720 },
         audio: false,
       });
-
-      // Создаём скрытый video элемент для захвата кадров
       const video = document.createElement('video');
       video.srcObject = stream;
       video.autoplay = true;
       video.muted = true;
       video.playsInline = true;
       await video.play();
-
       screenStreamRef.current = stream;
       screenVideoRef.current  = video;
-
-      // Создаём offscreen canvas
-      const canvas = document.createElement('canvas');
-      screenCanvasRef.current = canvas;
-
-      stream.getVideoTracks()[0].addEventListener('ended', () => {
-        stopScreenWatch();
-      });
-
+      screenCanvasRef.current = document.createElement('canvas');
+      stream.getVideoTracks()[0].addEventListener('ended', () => stopScreenWatch());
       setScreenWatching(true);
     } catch (err) {
       console.error('Захват экрана не удался:', err);
@@ -397,7 +522,6 @@ export default function MipoInterface() {
     setIsProcessing(true);
     playBeep('send');
 
-    // Захватываем текущий кадр экрана если видение активно
     const screenFrame = captureScreenFrame();
 
     const userMsg: Message = {
@@ -416,7 +540,7 @@ export default function MipoInterface() {
           history,
           bridge_url:   bridgeStatus === 'online' ? bridgeUrl : null,
           voice:        selectedVoice,
-          screen_frame: screenFrame || null,  // base64 JPEG кадра экрана или null
+          screen_frame: screenFrame || null,
         }),
       });
 
@@ -554,7 +678,6 @@ export default function MipoInterface() {
             <Globe className="w-3 h-3" /><span>{location}</span>
           </div>
 
-          {/* Кнопка видения экрана */}
           <button
             onClick={screenWatching ? stopScreenWatch : startScreenWatch}
             className={cn(
@@ -569,7 +692,6 @@ export default function MipoInterface() {
             <span>{screenWatching ? 'ЭКРАН ●' : 'ЭКРАН'}</span>
           </button>
 
-          {/* Engine статус */}
           <button
             onClick={() => { setShowSettings(true); setSettingsTab('servers'); setEngineInput(engineUrl); setBridgeInput(bridgeUrl); }}
             className="flex items-center gap-1 hover:text-cyan-300 transition-colors"
@@ -578,7 +700,6 @@ export default function MipoInterface() {
             <span className={sc(engineStatus)}>ENGINE {engineStatus==='online'?'●':engineStatus==='offline'?'○':'…'}</span>
           </button>
 
-          {/* Bridge статус */}
           <button
             onClick={() => { setShowSettings(true); setSettingsTab('servers'); setEngineInput(engineUrl); setBridgeInput(bridgeUrl); }}
             className="flex items-center gap-1 hover:text-cyan-300 transition-colors"
@@ -587,7 +708,6 @@ export default function MipoInterface() {
             <span className={sc(bridgeStatus)}>BRIDGE {bridgeStatus==='online'?'●':bridgeStatus==='offline'?'○':'…'}</span>
           </button>
 
-          {/* Голос */}
           <button
             onClick={() => { setShowSettings(true); setSettingsTab('voice'); }}
             className="flex items-center gap-1 hover:text-cyan-300 transition-colors"
@@ -606,7 +726,6 @@ export default function MipoInterface() {
             <Settings className="w-3.5 h-3.5" />
           </button>
 
-          {/* Статус обработки */}
           <div className="flex items-center gap-1">
             <Activity className="w-3 h-3" />
             <span className={isSpeaking ? 'text-cyan-300 animate-pulse' : isProcessing ? 'text-yellow-500 animate-pulse' : 'text-cyan-800'}>
@@ -616,7 +735,7 @@ export default function MipoInterface() {
         </div>
       </header>
 
-      {/* Превью экрана (если активно) */}
+      {/* Превью экрана */}
       {screenWatching && screenPreview && (
         <div className="relative border border-green-900/50 rounded overflow-hidden bg-black/50">
           <div className="absolute top-1 left-2 text-[9px] text-green-600 z-10 flex items-center gap-1">
@@ -649,7 +768,6 @@ export default function MipoInterface() {
                 </button>
               </div>
 
-              {/* Вкладки */}
               <div className="flex gap-1 mb-5">
                 {(['servers', 'voice'] as const).map(tab => (
                   <button
@@ -667,7 +785,6 @@ export default function MipoInterface() {
                 ))}
               </div>
 
-              {/* Вкладка Серверы */}
               {settingsTab === 'servers' && (
                 <div className="space-y-4">
                   <div className="space-y-1">
@@ -716,7 +833,6 @@ export default function MipoInterface() {
                 </div>
               )}
 
-              {/* Вкладка Голос */}
               {settingsTab === 'voice' && (
                 <div className="space-y-4">
                   <div>
@@ -807,6 +923,9 @@ export default function MipoInterface() {
         </div>
       )}
 
+      {/* Монитор системы в реальном времени */}
+      <SystemMonitor bridgeUrl={bridgeUrl} bridgeStatus={bridgeStatus} />
+
       {/* Чат */}
       <main className="flex-1 flex flex-col bg-black/20 border border-cyan-900/30 rounded-lg backdrop-blur-sm overflow-hidden min-h-0">
         <div className="flex-1 overflow-y-auto p-4 md:p-5 space-y-4">
@@ -828,7 +947,6 @@ export default function MipoInterface() {
                 )}>
                   <span className="whitespace-pre-wrap">{msg.text}</span>
 
-                  {/* Кадр экрана который был отправлен вместе с сообщением */}
                   {msg.screenFrame && (
                     <div className="mt-2 opacity-50">
                       <img
@@ -840,7 +958,6 @@ export default function MipoInterface() {
                     </div>
                   )}
 
-                  {/* Скриншот сделанный MIPO через bridge */}
                   {msg.screenshot && (
                     <div className="mt-3">
                       <img
