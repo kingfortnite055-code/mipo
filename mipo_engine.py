@@ -18,7 +18,6 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from langdetect import detect
 from llama_cpp import Llama
 
 # ─────────────────────────────────────────────
@@ -28,9 +27,9 @@ from llama_cpp import Llama
 MIPO_MODEL_PATH = "/mipo_adapter.gguf"
 
 N_GPU_LAYERS = 20
-N_CTX = 4096
+N_CTX = 8192
 N_THREADS = 6
-MAX_TOKENS = 512
+MAX_TOKENS = 1024
 
 # Опциональный Tavily API ключ для лучшего поиска
 # Бесплатно 1000 запросов/мес: https://tavily.com
@@ -290,12 +289,6 @@ async def execute_tool(tool_call: dict, bridge_url: Optional[str]) -> str:
 # ГОЛОСА TTS
 # ─────────────────────────────────────────────
 
-VOICES = {
-    'ru': 'ru-RU-DmitryNeural',
-    'en': 'en-US-ChristopherNeural',
-    'zh': 'zh-CN-YunxiNeural',
-}
-
 async def generate_audio(text: str, voice: str = "ru-RU-DmitryNeural") -> str:
     """Генерирует аудио через Edge-TTS, возвращает base64."""
     clean = re.sub(r'<tool>.*?</tool>', '', text, flags=re.DOTALL).strip()
@@ -317,20 +310,35 @@ async def generate_audio(text: str, voice: str = "ru-RU-DmitryNeural") -> str:
 # ГЕНЕРАЦИЯ ОТВЕТА МОДЕЛИ
 # ─────────────────────────────────────────────
 
-def build_prompt(message: str, history: List[ChatMessage], tool_results: str = "") -> str:
-    prompt = f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
+def build_prompt(message: str, history: List[ChatMessage], tool_results: str = "", screen_frame: Optional[str] = None) -> str:
+    system_block = f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
 
-    recent_history = history[-10:] if len(history) > 10 else history
-    for msg in recent_history:
-        role = "user" if msg.role == "user" else "assistant"
-        prompt += f"<|im_start|>{role}\n{msg.text}<|im_end|>\n"
+    # Умная обрезка истории: влезает всё что помещается в контекст.
+    # Оставляем первые 2 сообщения (начало разговора) + максимум последних.
+    # Грубая оценка: 1 токен ≈ 4 символа. Резервируем 1500 токенов под ответ и инструменты.
+    MAX_HISTORY_CHARS = (N_CTX - 1500) * 4
 
     user_content = message
+    if screen_frame:
+        user_content = f"{message}\n\n[Пользователь поделился кадром своего экрана.]"
     if tool_results:
-        user_content = f"{message}\n\n[Результаты инструментов]\n{tool_results}"
+        user_content = f"{user_content}\n\n[Результаты инструментов]\n{tool_results}"
 
-    prompt += f"<|im_start|>user\n{user_content}<|im_end|>\n"
-    prompt += "<|im_start|>assistant\n"
+    current_msg_block = f"<|im_start|>user\n{user_content}<|im_end|>\n<|im_start|>assistant\n"
+    used_chars = len(system_block) + len(current_msg_block)
+
+    # Берём историю с конца, пока влезает
+    selected = []
+    for msg in reversed(history):
+        role = "user" if msg.role == "user" else "assistant"
+        block = f"<|im_start|>{role}\n{msg.text}<|im_end|>\n"
+        if used_chars + len(block) < MAX_HISTORY_CHARS:
+            selected.insert(0, block)
+            used_chars += len(block)
+        else:
+            break
+
+    prompt = system_block + "".join(selected) + current_msg_block
     return prompt
 
 def generate_response(prompt: str) -> str:
@@ -358,8 +366,8 @@ async def handle_chat(request: ChatRequest):
 
     loop = asyncio.get_event_loop()
 
-    # Шаг 1: первый проход модели
-    prompt = build_prompt(request.message, request.history)
+    # Шаг 1: первый проход модели (с кадром экрана если есть)
+    prompt = build_prompt(request.message, request.history, screen_frame=request.screen_frame)
     raw_reply = await loop.run_in_executor(None, generate_response, prompt)
 
     # Шаг 2: ищем вызовы инструментов
@@ -388,7 +396,7 @@ async def handle_chat(request: ChatRequest):
         tool_results_text = "\n\n".join(results)
 
         # Шаг 3: второй проход с результатами инструментов
-        prompt2 = build_prompt(request.message, request.history, tool_results_text)
+        prompt2 = build_prompt(request.message, request.history, tool_results_text, request.screen_frame)
         final_reply = await loop.run_in_executor(None, generate_response, prompt2)
     else:
         final_reply = raw_reply
