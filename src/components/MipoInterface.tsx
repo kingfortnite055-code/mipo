@@ -912,6 +912,12 @@ export default function MipoInterface() {
             className="flex items-center gap-1 px-3 py-1.5 border border-white/60 text-white/60 text-[10px] hover:bg-white/10rounded transition-all disabled:opacity-40">
             <Search className="w-3 h-3" /> ПОИСК
           </button>
+          {bridgeStatus === 'online' && (
+            <button onClick={() => handleSend('Открой браузер и перейди на google.com')} disabled={isProcessing}
+              className="flex items-center gap-1 px-3 py-1.5 border border-white/60 text-white/60 text-[10px] hover:bg-white/10 rounded transition-all disabled:opacity-40">
+              <Globe className="w-3 h-3" /> БРАУЗЕР
+            </button>
+          )}
           <button onClick={screenWatching ? stopScreenWatch : startScreenWatch}
             className={cn(
               'flex items-center gap-1 px-3 py-1.5 border text-[10px] rounded transition-all',
