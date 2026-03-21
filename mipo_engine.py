@@ -60,6 +60,20 @@ SYSTEM_PROMPT = """Ты — MIPO, персональный ИИ-ассистен
 - screenshot() — сделать скриншот экрана
 - shell(command) — выполнить команду в терминале
 
+### Браузер (требует Playwright):
+- browser_open(url) — открыть URL в браузере
+- browser_click(selector?, text?, x?, y?) — кликнуть по элементу или координатам
+- browser_type(selector, text, press?) — ввести текст в поле (press: "Enter", "Tab" и т.д.)
+- browser_read(selector?) — прочитать текст страницы или конкретного элемента
+- browser_screenshot() — скриншот текущей страницы браузера
+- browser_scroll(direction?, amount?) — прокрутить страницу (direction: up/down)
+- browser_eval(code) — выполнить JS на странице, получить результат
+- browser_tabs() — список открытых вкладок
+- browser_tab(index) — переключиться на вкладку по номеру
+- browser_back() — кнопка «Назад»
+- browser_forward() — кнопка «Вперёд»
+- browser_close() — закрыть браузер
+
 ## Правила:
 - При write_file, delete_file, rename_file — всегда спрашивай подтверждение у пользователя перед выполнением, если он явно не сказал "сделай"
 - Системные пути защищены bridge и вернут ошибку — не пытайся их трогать
@@ -282,6 +296,90 @@ async def execute_tool(tool_call: dict, bridge_url: Optional[str]) -> str:
         r = await call_bridge(bridge_url, "shell", "POST", {"command": args.get("command", "")})
         output = r.get("output", r.get("error", "Нет вывода"))
         return f"[Терминал]\n{output}"
+
+    # ── Браузер ───────────────────────────────────────
+    if name == "browser_open":
+        url = args.get("url", "")
+        if not url: return "[Ошибка] url обязателен"
+        r = await call_bridge(bridge_url, "browser/open", "POST", {"url": url})
+        if "error" in r: return f"[Ошибка браузера] {r['error']}"
+        return f"[Браузер открыт]\nURL: {r.get('url', url)}\nЗаголовок: {r.get('title', '')}"
+
+    if name == "browser_click":
+        r = await call_bridge(bridge_url, "browser/click", "POST", {
+            "selector": args.get("selector"),
+            "text":     args.get("text"),
+            "x":        args.get("x"),
+            "y":        args.get("y"),
+        })
+        if "error" in r: return f"[Ошибка клика] {r['error']}"
+        return "[Клик выполнен]"
+
+    if name == "browser_type":
+        r = await call_bridge(bridge_url, "browser/type", "POST", {
+            "selector": args.get("selector"),
+            "text":     args.get("text", ""),
+            "press":    args.get("press"),
+        })
+        if "error" in r: return f"[Ошибка ввода] {r['error']}"
+        return "[Текст введён]"
+
+    if name == "browser_read":
+        r = await call_bridge(bridge_url, "browser/read", "GET",
+                              {"selector": args.get("selector", "")})
+        if "error" in r: return f"[Ошибка чтения] {r['error']}"
+        return (f"[Страница: {r.get('title', '')}]\n"
+                f"URL: {r.get('url', '')}\n\n"
+                f"{r.get('content', '')}")
+
+    if name == "browser_screenshot":
+        r = await call_bridge(bridge_url, "browser/screenshot", "GET")
+        if "screenshot" in r:
+            return f"[SCREENSHOT_B64]{r['screenshot']}[/SCREENSHOT_B64]"
+        return f"[Ошибка скриншота браузера] {r.get('error', '')}"
+
+    if name == "browser_scroll":
+        r = await call_bridge(bridge_url, "browser/scroll", "POST", {
+            "direction": args.get("direction", "down"),
+            "amount":    args.get("amount", 500),
+        })
+        if "error" in r: return f"[Ошибка прокрутки] {r['error']}"
+        return f"[Прокрутка {args.get('direction', 'down')} на {args.get('amount', 500)}px]"
+
+    if name == "browser_eval":
+        code = args.get("code", "")
+        if not code: return "[Ошибка] code обязателен"
+        r = await call_bridge(bridge_url, "browser/eval", "POST", {"code": code})
+        if "error" in r: return f"[Ошибка JS] {r['error']}"
+        return f"[Результат JS]\n{r.get('result', '')}"
+
+    if name == "browser_tabs":
+        r = await call_bridge(bridge_url, "browser/tabs", "GET")
+        if "error" in r: return f"[Ошибка] {r['error']}"
+        tabs = r.get("tabs", [])
+        if not tabs: return "[Браузер закрыт или нет вкладок]"
+        lines = [f"[{t['index']}] {t['title']} — {t['url']}" for t in tabs]
+        return "[Вкладки]\n" + "\n".join(lines)
+
+    if name == "browser_tab":
+        r = await call_bridge(bridge_url, "browser/tab", "POST", {"index": args.get("index", 0)})
+        if "error" in r: return f"[Ошибка] {r['error']}"
+        return f"[Переключено на: {r.get('title', '')}] {r.get('url', '')}"
+
+    if name == "browser_back":
+        r = await call_bridge(bridge_url, "browser/back", "POST")
+        if "error" in r: return f"[Ошибка] {r['error']}"
+        return f"[Назад] {r.get('url', '')}"
+
+    if name == "browser_forward":
+        r = await call_bridge(bridge_url, "browser/forward", "POST")
+        if "error" in r: return f"[Ошибка] {r['error']}"
+        return f"[Вперёд] {r.get('url', '')}"
+
+    if name == "browser_close":
+        r = await call_bridge(bridge_url, "browser/close", "POST")
+        if "error" in r: return f"[Ошибка] {r['error']}"
+        return "[Браузер закрыт]"
 
     return f"[Неизвестный инструмент: {name}]"
 
