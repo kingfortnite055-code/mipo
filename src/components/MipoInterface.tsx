@@ -18,6 +18,7 @@ interface Message {
   timestamp: Date;
   screenshot?: string;
   screenFrame?: string;
+  toolResults?: string;
 }
 
 interface SystemStats {
@@ -107,57 +108,57 @@ function SystemMonitor({ bridgeUrl, bridgeStatus }: {
   const uptimeStr = upH > 0 ? `${upH}ч ${upM}м` : `${upM}м`;
 
   return (
-    <div className="border border-cyan-900/30 rounded-lg bg-black/20 overflow-hidden">
+    <div className="border border-white/60 rounded-lg bg-black/20 overflow-hidden">
       {/* Строка-заголовок — всегда видна */}
       <button
         onClick={() => setExpanded(e => !e)}
-        className="w-full flex items-center gap-3 px-3 py-2 hover:bg-cyan-950/10 transition-colors"
+        className="w-full flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors"
       >
-        <Activity className="w-3 h-3 text-cyan-800 flex-shrink-0" />
+        <Activity className="w-3 h-3 text-white/50 flex-shrink-0" />
 
         <div className="flex items-center gap-1.5">
-          <span className="text-[9px] text-cyan-900">CPU</span>
-          <div className="w-14 h-1.5 bg-cyan-950/50 rounded-full overflow-hidden">
+          <span className="text-[9px] text-white/70">CPU</span>
+          <div className="w-14 h-1.5 bg-white/10 rounded-full overflow-hidden">
             <div className={cn('h-full rounded-full transition-all duration-500', cpuBg)} style={{ width: `${stats.cpu}%`, opacity: 0.8 }} />
           </div>
           <span className={cn('text-[10px] font-mono w-7', cpuColor)}>{stats.cpu}%</span>
         </div>
 
         <div className="flex items-center gap-1.5">
-          <span className="text-[9px] text-cyan-900">RAM</span>
-          <div className="w-14 h-1.5 bg-cyan-950/50 rounded-full overflow-hidden">
+          <span className="text-[9px] text-white/70">RAM</span>
+          <div className="w-14 h-1.5 bg-white/10 rounded-full overflow-hidden">
             <div className={cn('h-full rounded-full transition-all duration-500', ramBg)} style={{ width: `${stats.ram}%`, opacity: 0.8 }} />
           </div>
           <span className={cn('text-[10px] font-mono w-7', ramColor)}>{stats.ram}%</span>
         </div>
 
-        <span className="text-[10px] text-cyan-900 ml-auto hidden sm:block truncate max-w-[120px]">{stats.hostname}</span>
-        <span className={cn('text-[9px] text-cyan-900 transition-transform inline-block', expanded && 'rotate-180')}>▼</span>
+        <span className="text-[10px] text-white/70 ml-auto hidden sm:block truncate max-w-[120px]">{stats.hostname}</span>
+        <span className={cn('text-[9px] text-white/70 transition-transform inline-block', expanded && 'rotate-180')}>▼</span>
       </button>
 
       {/* Расширенная панель */}
       {expanded && (
-        <div className="px-3 pb-3 space-y-3 border-t border-cyan-900/20 pt-2.5">
+        <div className="px-3 pb-3 space-y-3 border-t border-white/60 pt-2.5">
           <div className="grid grid-cols-2 gap-2">
-            <div className="border border-cyan-900/25 rounded p-2 space-y-1">
-              <div className="flex items-center gap-1 text-[10px] text-cyan-800"><Cpu className="w-3 h-3" /> CPU</div>
+            <div className="border border-white/50 rounded p-2 space-y-1">
+              <div className="flex items-center gap-1 text-[10px] text-white/50"><Cpu className="w-3 h-3" /> CPU</div>
               <div className={cn('text-lg font-bold font-mono', cpuColor)}>{stats.cpu}%</div>
-              <div className="text-[9px] text-cyan-900">{stats.cpuCores} ядер</div>
+              <div className="text-[9px] text-white/70">{stats.cpuCores} ядер</div>
             </div>
-            <div className="border border-cyan-900/25 rounded p-2 space-y-1">
-              <div className="flex items-center gap-1 text-[10px] text-cyan-800"><HardDrive className="w-3 h-3" /> RAM</div>
+            <div className="border border-white/50 rounded p-2 space-y-1">
+              <div className="flex items-center gap-1 text-[10px] text-white/50"><HardDrive className="w-3 h-3" /> RAM</div>
               <div className={cn('text-lg font-bold font-mono', ramColor)}>{stats.ram}%</div>
-              <div className="text-[9px] text-cyan-900">{stats.freeMem} GB свободно</div>
+              <div className="text-[9px] text-white/70">{stats.freeMem} GB свободно</div>
             </div>
           </div>
 
           {history.length > 1 && (
             <div>
-              <div className="text-[9px] text-cyan-900 mb-1 tracking-widest">ИСТОРИЯ (30с)</div>
+              <div className="text-[9px] text-white/70 mb-1 tracking-widest">ИСТОРИЯ (30с)</div>
               <svg width="100%" height="32" viewBox={`0 0 ${history.length * 4} 32`} preserveAspectRatio="none">
                 <polyline
                   points={history.map((h, i) => `${i * 4},${32 - (h.cpu / 100) * 32}`).join(' ')}
-                  fill="none" stroke="rgba(6,182,212,0.6)" strokeWidth="1"
+                  fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1"
                 />
                 <polyline
                   points={history.map((h, i) => `${i * 4},${32 - (h.ram / 100) * 32}`).join(' ')}
@@ -165,24 +166,24 @@ function SystemMonitor({ bridgeUrl, bridgeStatus }: {
                 />
               </svg>
               <div className="flex gap-3 mt-0.5">
-                <span className="text-[9px] text-cyan-800">— CPU</span>
+                <span className="text-[9px] text-white/50">— CPU</span>
                 <span className="text-[9px] text-yellow-800">— RAM</span>
               </div>
             </div>
           )}
 
           <div className="space-y-1 text-[10px]">
-            <div className="flex justify-between text-cyan-900">
+            <div className="flex justify-between text-white/70">
               <span>Процессор</span>
-              <span className="text-cyan-800 text-right max-w-[180px] truncate">{stats.cpuModel}</span>
+              <span className="text-white/50 text-right max-w-[180px] truncate">{stats.cpuModel}</span>
             </div>
-            <div className="flex justify-between text-cyan-900">
+            <div className="flex justify-between text-white/70">
               <span>Память</span>
-              <span className="text-cyan-800">{stats.freeMem} / {stats.totalMem} GB</span>
+              <span className="text-white/50">{stats.freeMem} / {stats.totalMem} GB</span>
             </div>
-            <div className="flex justify-between text-cyan-900">
+            <div className="flex justify-between text-white/70">
               <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Uptime</span>
-              <span className="text-cyan-800">{uptimeStr}</span>
+              <span className="text-white/50">{uptimeStr}</span>
             </div>
           </div>
         </div>
@@ -429,7 +430,7 @@ export default function MipoInterface() {
     ctx.clearRect(0, 0, 80, 80);
     const cx = 40, cy = 40, r = 30;
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(6,182,212,0.3)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.stroke();
 
     if (da) {
       const step = (Math.PI * 2) / 64;
@@ -438,7 +439,7 @@ export default function MipoInterface() {
         ctx.beginPath();
         ctx.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
         ctx.lineTo(cx + Math.cos(a) * (r + h), cy + Math.sin(a) * (r + h));
-        ctx.strokeStyle = `rgba(6,182,212,${v > 10 ? v / 200 : 0.1})`;
+        ctx.strokeStyle = `rgba(255,255,255,${v > 10 ? v / 180 : 0.06})`;
         ctx.lineWidth = 2; ctx.stroke();
       }
     }
@@ -515,7 +516,7 @@ export default function MipoInterface() {
   // ── ОТПРАВКА СООБЩЕНИЯ ───────────────────────────
 
   const buildHistory = (msgs: Message[]) =>
-    msgs.slice(-20).map(m => ({ role: m.sender === 'user' ? 'user' : 'mipo', text: m.text }));
+    msgs.map(m => ({ role: m.sender === 'user' ? 'user' : 'mipo', text: m.text }));
 
   const handleSend = async (text: string = inputText) => {
     if (!text.trim() || isProcessing) return;
@@ -554,6 +555,7 @@ export default function MipoInterface() {
         sender: 'mipo',
         timestamp: new Date(),
         screenshot: data.screenshot || undefined,
+        toolResults: data.tool_results || undefined,
       };
       setMessages(prev => [...prev, mipoMsg]);
 
@@ -623,7 +625,7 @@ export default function MipoInterface() {
   };
 
   const sc = (s: string) =>
-    s === 'online' ? 'text-green-400' : s === 'offline' ? 'text-red-400' : 'text-cyan-700';
+    s === 'online' ? 'text-green-400' : s === 'offline' ? 'text-red-400' : 'text-white/60';
 
   // ── ЭКРАН ИНИЦИАЛИЗАЦИИ ──────────────────────────
 
@@ -632,10 +634,10 @@ export default function MipoInterface() {
       <div className="min-h-screen bg-black flex items-center justify-center">
         <div className="text-center space-y-8">
           <div>
-            <div className="text-cyan-400 text-7xl font-bold tracking-widest mb-2">MIPO</div>
-            <div className="text-cyan-700 text-xs tracking-[0.5em]">ПЕРСОНАЛЬНЫЙ ИИ-АССИСТЕНТ</div>
+            <div className="text-white text-7xl font-bold tracking-widest mb-2">MIPO</div>
+            <div className="text-white/60 text-xs tracking-[0.5em]">ПЕРСОНАЛЬНЫЙ ИИ-АССИСТЕНТ</div>
           </div>
-          <div className="text-[10px] text-cyan-800 space-y-1">
+          <div className="text-[10px] text-white/50 space-y-1">
             <div>● Голосовое управление</div>
             <div>● Видение вашего экрана</div>
             <div>● Управление компьютером</div>
@@ -644,7 +646,7 @@ export default function MipoInterface() {
           </div>
           <button
             onClick={initializeSystem}
-            className="px-10 py-4 border border-cyan-500/50 text-cyan-400 text-sm tracking-[0.3em] hover:bg-cyan-950/30 hover:border-cyan-400/70 transition-all"
+            className="px-10 py-4 border border-white/60 text-white text-sm tracking-[0.3em] hover:bg-white/10 hover:border-white/60 transition-all"
           >
             ИНИЦИАЛИЗАЦИЯ
           </button>
@@ -656,15 +658,15 @@ export default function MipoInterface() {
   // ── ОСНОВНОЙ РЕНДЕР ──────────────────────────────
 
   return (
-    <div className="min-h-screen bg-black text-cyan-400 flex flex-col p-4 gap-3 font-mono">
+    <div className="min-h-screen bg-black text-white flex flex-col p-4 gap-3 font-mono">
 
       {/* Шапка */}
-      <header className="flex items-center justify-between border-b border-cyan-900/30 pb-3">
+      <header className="flex items-center justify-between border-b border-white/60 pb-3">
         <div className="flex items-center gap-4">
           <canvas ref={vizCanvasRef} width={80} height={80} className="opacity-80 flex-shrink-0" />
           <div>
-            <h1 className="text-2xl font-bold tracking-widest text-cyan-100">MIPO</h1>
-            <div className="text-[10px] text-cyan-700 tracking-[0.2em] mt-0.5">
+            <h1 className="text-2xl font-bold tracking-widest text-white">MIPO</h1>
+            <div className="text-[10px] text-white/60 tracking-[0.2em] mt-0.5">
               {screenWatching
                 ? <span className="text-green-500 animate-pulse">● ВИДЕНИЕ ЭКРАНА АКТИВНО</span>
                 : <span>ИНТЕРФЕЙС MARK VII</span>
@@ -674,7 +676,7 @@ export default function MipoInterface() {
         </div>
 
         <div className="flex items-center gap-3 text-[10px] md:text-xs flex-wrap justify-end">
-          <div className="flex items-center gap-1 text-cyan-800">
+          <div className="flex items-center gap-1 text-white/50">
             <Globe className="w-3 h-3" /><span>{location}</span>
           </div>
 
@@ -684,7 +686,7 @@ export default function MipoInterface() {
               'flex items-center gap-1 px-2 py-1 rounded border transition-all',
               screenWatching
                 ? 'border-green-500/50 text-green-400 bg-green-950/20 animate-pulse'
-                : 'border-cyan-900/50 text-cyan-700 hover:text-cyan-400'
+                : 'border-white/60 text-white/60 hover:text-white'
             )}
             title={screenWatching ? 'Остановить видение экрана' : 'Включить видение экрана'}
           >
@@ -694,7 +696,7 @@ export default function MipoInterface() {
 
           <button
             onClick={() => { setShowSettings(true); setSettingsTab('servers'); setEngineInput(engineUrl); setBridgeInput(bridgeUrl); }}
-            className="flex items-center gap-1 hover:text-cyan-300 transition-colors"
+            className="flex items-center gap-1 hover:text-white transition-colors"
           >
             <Wifi className="w-3 h-3" />
             <span className={sc(engineStatus)}>ENGINE {engineStatus==='online'?'●':engineStatus==='offline'?'○':'…'}</span>
@@ -702,7 +704,7 @@ export default function MipoInterface() {
 
           <button
             onClick={() => { setShowSettings(true); setSettingsTab('servers'); setEngineInput(engineUrl); setBridgeInput(bridgeUrl); }}
-            className="flex items-center gap-1 hover:text-cyan-300 transition-colors"
+            className="flex items-center gap-1 hover:text-white transition-colors"
           >
             <Monitor className="w-3 h-3" />
             <span className={sc(bridgeStatus)}>BRIDGE {bridgeStatus==='online'?'●':bridgeStatus==='offline'?'○':'…'}</span>
@@ -710,25 +712,25 @@ export default function MipoInterface() {
 
           <button
             onClick={() => { setShowSettings(true); setSettingsTab('voice'); }}
-            className="flex items-center gap-1 hover:text-cyan-300 transition-colors"
+            className="flex items-center gap-1 hover:text-white transition-colors"
             title="Выбор голоса"
           >
             <Volume2 className="w-3 h-3" />
-            <span className="text-cyan-700 max-w-[80px] truncate">
+            <span className="text-white/60 max-w-[80px] truncate">
               {[...VOICE_OPTIONS.ru, ...VOICE_OPTIONS.en].find(v => v.id === selectedVoice)?.label?.split(' ')[0] || 'ГОЛОС'}
             </span>
           </button>
 
           <button
             onClick={() => { setShowSettings(true); setSettingsTab('servers'); setEngineInput(engineUrl); setBridgeInput(bridgeUrl); }}
-            className="text-cyan-800 hover:text-cyan-600 transition-colors"
+            className="text-white/50 hover:text-white/70 transition-colors"
           >
             <Settings className="w-3.5 h-3.5" />
           </button>
 
           <div className="flex items-center gap-1">
             <Activity className="w-3 h-3" />
-            <span className={isSpeaking ? 'text-cyan-300 animate-pulse' : isProcessing ? 'text-yellow-500 animate-pulse' : 'text-cyan-800'}>
+            <span className={isSpeaking ? 'text-white animate-pulse' : isProcessing ? 'text-yellow-500 animate-pulse' : 'text-white/50'}>
               {isSpeaking ? 'РЕЧЬ' : isProcessing ? 'ОБРАБОТКА' : 'ОЖИДАНИЕ'}
             </span>
           </div>
@@ -759,11 +761,11 @@ export default function MipoInterface() {
           >
             <motion.div
               initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-              className="bg-black border border-cyan-800/50 rounded-lg p-6 w-full max-w-md"
+              className="bg-black border border-white/50 rounded-lg p-6 w-full max-w-md"
             >
               <div className="flex justify-between items-center mb-5">
-                <h2 className="text-cyan-300 font-bold tracking-widest text-sm">НАСТРОЙКИ</h2>
-                <button onClick={() => setShowSettings(false)} className="text-cyan-700 hover:text-cyan-400">
+                <h2 className="text-white font-bold tracking-widest text-sm">НАСТРОЙКИ</h2>
+                <button onClick={() => setShowSettings(false)} className="text-white/60 hover:text-white">
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -776,8 +778,8 @@ export default function MipoInterface() {
                     className={cn(
                       'flex-1 py-1.5 text-[10px] tracking-widest border rounded transition-all',
                       settingsTab === tab
-                        ? 'border-cyan-500/60 text-cyan-300 bg-cyan-950/30'
-                        : 'border-cyan-900/30 text-cyan-700 hover:text-cyan-500'
+                        ? 'border-white/60 text-white bg-white/10'
+                        : 'border-white/60 text-white/60 hover:text-white/80'
                     )}
                   >
                     {tab === 'servers' ? 'СЕРВЕРЫ' : 'ГОЛОС'}
@@ -788,7 +790,7 @@ export default function MipoInterface() {
               {settingsTab === 'servers' && (
                 <div className="space-y-4">
                   <div className="space-y-1">
-                    <label className="text-[10px] text-cyan-600 tracking-widest flex items-center gap-2">
+                    <label className="text-[10px] text-white/70 tracking-widest flex items-center gap-2">
                       <Wifi className="w-3 h-3" /> MIPO ENGINE (Colab)
                       <span className={`ml-auto ${sc(engineStatus)}`}>
                         {engineStatus==='online'?'ОНЛАЙН':engineStatus==='offline'?'ОФЛАЙН':'...'}
@@ -798,12 +800,12 @@ export default function MipoInterface() {
                       type="text" value={engineInput} onChange={e => setEngineInput(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && saveSettings()}
                       placeholder="https://xxxx.ngrok.io"
-                      className="w-full bg-black/50 border border-cyan-800/50 text-cyan-100 text-sm px-3 py-2 rounded outline-none focus:border-cyan-500/70"
+                      className="w-full bg-black/50 border border-white/50 text-white text-sm px-3 py-2 rounded outline-none focus:border-white/60"
                     />
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] text-cyan-600 tracking-widest flex items-center gap-2">
+                    <label className="text-[10px] text-white/70 tracking-widest flex items-center gap-2">
                       <Monitor className="w-3 h-3" /> LOCAL BRIDGE (ПК)
                       <span className={`ml-auto ${sc(bridgeStatus)}`}>
                         {bridgeStatus==='online'?'ОНЛАЙН':bridgeStatus==='offline'?'ОФЛАЙН':'...'}
@@ -813,20 +815,20 @@ export default function MipoInterface() {
                       type="text" value={bridgeInput} onChange={e => setBridgeInput(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && saveSettings()}
                       placeholder="http://localhost:3001"
-                      className="w-full bg-black/50 border border-cyan-800/50 text-cyan-100 text-sm px-3 py-2 rounded outline-none focus:border-cyan-500/70"
+                      className="w-full bg-black/50 border border-white/50 text-white text-sm px-3 py-2 rounded outline-none focus:border-white/60"
                     />
-                    <p className="text-[10px] text-cyan-800">
-                      Запусти <code className="text-cyan-600">node local-bridge.cjs</code> на ПК
+                    <p className="text-[10px] text-white/50">
+                      Запусти <code className="text-white/70">node local-bridge.cjs</code> на ПК
                     </p>
                   </div>
 
                   <div className="flex gap-3 pt-1">
                     <button onClick={saveSettings}
-                      className="flex items-center gap-2 px-4 py-2 border border-cyan-500/50 text-cyan-400 text-xs hover:bg-cyan-950/30 rounded transition-all">
+                      className="flex items-center gap-2 px-4 py-2 border border-white/60 text-white text-xs hover:bg-white/10 rounded transition-all">
                       <Check className="w-3 h-3" /> СОХРАНИТЬ
                     </button>
                     <button onClick={() => { setEngineInput(DEFAULT_ENGINE_URL); setBridgeInput(DEFAULT_BRIDGE_URL); }}
-                      className="px-4 py-2 border border-cyan-900/30 text-cyan-700 text-xs hover:text-cyan-500 rounded transition-all">
+                      className="px-4 py-2 border border-white/60 text-white/60 text-xs hover:text-white/80 rounded transition-all">
                       СБРОСИТЬ
                     </button>
                   </div>
@@ -836,38 +838,38 @@ export default function MipoInterface() {
               {settingsTab === 'voice' && (
                 <div className="space-y-4">
                   <div>
-                    <div className="text-[10px] text-cyan-600 tracking-widest mb-2">🇷🇺 РУССКИЕ ГОЛОСА</div>
+                    <div className="text-[10px] text-white/70 tracking-widest mb-2">🇷🇺 РУССКИЕ ГОЛОСА</div>
                     <div className="space-y-1.5">
                       {VOICE_OPTIONS.ru.map(v => (
                         <button key={v.id} onClick={() => saveVoice(v.id)}
                           className={cn(
                             'w-full text-left px-3 py-2 rounded border text-xs transition-all flex items-center gap-2',
                             selectedVoice === v.id
-                              ? 'border-cyan-500/60 text-cyan-200 bg-cyan-950/40'
-                              : 'border-cyan-900/30 text-cyan-700 hover:border-cyan-800/50 hover:text-cyan-500'
+                              ? 'border-white/60 text-white bg-white/12'
+                              : 'border-white/60 text-white/60 hover:border-white/50 hover:text-white/80'
                           )}>
                           <span>{v.flag}</span>
                           <span>{v.label}</span>
-                          {selectedVoice === v.id && <span className="ml-auto text-cyan-500 text-[10px]">● активен</span>}
+                          {selectedVoice === v.id && <span className="ml-auto text-white/80 text-[10px]">● активен</span>}
                         </button>
                       ))}
                     </div>
                   </div>
 
                   <div>
-                    <div className="text-[10px] text-cyan-600 tracking-widest mb-2">🇺🇸 АНГЛИЙСКИЕ ГОЛОСА</div>
+                    <div className="text-[10px] text-white/70 tracking-widest mb-2">🇺🇸 АНГЛИЙСКИЕ ГОЛОСА</div>
                     <div className="space-y-1.5">
                       {VOICE_OPTIONS.en.map(v => (
                         <button key={v.id} onClick={() => saveVoice(v.id)}
                           className={cn(
                             'w-full text-left px-3 py-2 rounded border text-xs transition-all flex items-center gap-2',
                             selectedVoice === v.id
-                              ? 'border-cyan-500/60 text-cyan-200 bg-cyan-950/40'
-                              : 'border-cyan-900/30 text-cyan-700 hover:border-cyan-800/50 hover:text-cyan-500'
+                              ? 'border-white/60 text-white bg-white/12'
+                              : 'border-white/60 text-white/60 hover:border-white/50 hover:text-white/80'
                           )}>
                           <span>{v.flag}</span>
                           <span>{v.label}</span>
-                          {selectedVoice === v.id && <span className="ml-auto text-cyan-500 text-[10px]">● активен</span>}
+                          {selectedVoice === v.id && <span className="ml-auto text-white/80 text-[10px]">● активен</span>}
                         </button>
                       ))}
                     </div>
@@ -876,7 +878,7 @@ export default function MipoInterface() {
                   <button
                     onClick={() => speak('Привет! Я MIPO, ваш персональный ассистент. Как дела?')}
                     disabled={isSpeaking}
-                    className="w-full py-2 border border-cyan-900/30 text-cyan-700 text-xs hover:text-cyan-500 rounded transition-all disabled:opacity-40"
+                    className="w-full py-2 border border-white/60 text-white/60 text-xs hover:text-white/80 rounded transition-all disabled:opacity-40"
                   >
                     🔊 ПРОВЕРИТЬ ГОЛОС
                   </button>
@@ -897,17 +899,17 @@ export default function MipoInterface() {
                 <Shield className="w-3 h-3" /> СКАНИРОВАНИЕ
               </button>
               <button onClick={quickScreenshot} disabled={isProcessing}
-                className="flex items-center gap-1 px-3 py-1.5 border border-cyan-900/50 text-cyan-700 text-[10px] hover:bg-cyan-950/20 rounded transition-all disabled:opacity-40">
+                className="flex items-center gap-1 px-3 py-1.5 border border-white/60 text-white/60 text-[10px] hover:bg-white/10rounded transition-all disabled:opacity-40">
                 <Camera className="w-3 h-3" /> СКРИНШОТ
               </button>
               <button onClick={quickStats} disabled={isProcessing}
-                className="flex items-center gap-1 px-3 py-1.5 border border-cyan-900/50 text-cyan-700 text-[10px] hover:bg-cyan-950/20 rounded transition-all disabled:opacity-40">
+                className="flex items-center gap-1 px-3 py-1.5 border border-white/60 text-white/60 text-[10px] hover:bg-white/10rounded transition-all disabled:opacity-40">
                 <Activity className="w-3 h-3" /> СТАТИСТИКА
               </button>
             </>
           )}
           <button onClick={() => handleSend('Найди в интернете последние новости технологий')} disabled={isProcessing}
-            className="flex items-center gap-1 px-3 py-1.5 border border-cyan-900/50 text-cyan-700 text-[10px] hover:bg-cyan-950/20 rounded transition-all disabled:opacity-40">
+            className="flex items-center gap-1 px-3 py-1.5 border border-white/60 text-white/60 text-[10px] hover:bg-white/10rounded transition-all disabled:opacity-40">
             <Search className="w-3 h-3" /> ПОИСК
           </button>
           <button onClick={screenWatching ? stopScreenWatch : startScreenWatch}
@@ -915,7 +917,7 @@ export default function MipoInterface() {
               'flex items-center gap-1 px-3 py-1.5 border text-[10px] rounded transition-all',
               screenWatching
                 ? 'border-green-700/50 text-green-500 hover:bg-green-950/20'
-                : 'border-cyan-900/50 text-cyan-700 hover:bg-cyan-950/20'
+                : 'border-white/60 text-white/60 hover:bg-white/10
             )}>
             {screenWatching ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
             {screenWatching ? 'ВЫКЛ ЭКРАН' : 'СМОТРЕТЬ ЭКРАН'}
@@ -927,7 +929,7 @@ export default function MipoInterface() {
       <SystemMonitor bridgeUrl={bridgeUrl} bridgeStatus={bridgeStatus} />
 
       {/* Чат */}
-      <main className="flex-1 flex flex-col bg-black/20 border border-cyan-900/30 rounded-lg backdrop-blur-sm overflow-hidden min-h-0">
+      <main className="flex-1 flex flex-col bg-black/20 border border-white/60 rounded-lg backdrop-blur-sm overflow-hidden min-h-0">
         <div className="flex-1 overflow-y-auto p-4 md:p-5 space-y-4">
           <AnimatePresence>
             {messages.map(msg => (
@@ -942,8 +944,8 @@ export default function MipoInterface() {
                 <div className={cn(
                   'px-4 py-3 rounded-lg border text-sm leading-relaxed',
                   msg.sender === 'user'
-                    ? 'bg-cyan-950/30 border-cyan-700/30 text-cyan-100'
-                    : 'bg-black/40 border-cyan-900/30 text-cyan-300'
+                    ? 'bg-white/10 border-white/60 text-white'
+                    : 'bg-black/40 border-white/60 text-white'
                 )}>
                   <span className="whitespace-pre-wrap">{msg.text}</span>
 
@@ -963,17 +965,28 @@ export default function MipoInterface() {
                       <img
                         src={`data:image/png;base64,${msg.screenshot}`}
                         alt="Скриншот"
-                        className="max-w-full rounded border border-cyan-900/30 cursor-pointer hover:opacity-90 transition-opacity"
+                        className="max-w-full rounded border border-white/60 cursor-pointer hover:opacity-90 transition-opacity"
                         onClick={() => {
                           const w = window.open();
                           if (w) w.document.write(`<img src="data:image/png;base64,${msg.screenshot}" style="max-width:100%">`);
                         }}
                       />
-                      <p className="text-[10px] text-cyan-700 mt-1">Нажми для увеличения</p>
+                      <p className="text-[10px] text-white/60 mt-1">Нажми для увеличения</p>
                     </div>
                   )}
+
+                  {msg.toolResults && (
+                    <details className="mt-2">
+                      <summary className="text-[10px] text-white/50 cursor-pointer hover:text-white/70 transition-colors select-none">
+                        ⚙ данные инструментов
+                      </summary>
+                      <pre className="mt-1.5 text-[10px] text-white/70 bg-black/40 rounded p-2 overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto border border-white/60">
+                        {msg.toolResults}
+                      </pre>
+                    </details>
+                  )}
                 </div>
-                <span className="text-[10px] text-cyan-900 mt-1">
+                <span className="text-[10px] text-white/70 mt-1">
                   {msg.timestamp.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </motion.div>
@@ -983,16 +996,16 @@ export default function MipoInterface() {
         </div>
 
         {/* Строка ввода */}
-        <div className="p-4 border-t border-cyan-900/30 bg-black/40 flex-shrink-0">
+        <div className="p-4 border-t border-white/60 bg-black/40 flex-shrink-0">
           {liveTranscript && (
-            <div className="text-xs text-cyan-600 italic mb-2 px-1">🎙 {liveTranscript}</div>
+            <div className="text-xs text-white/70 italic mb-2 px-1">🎙 {liveTranscript}</div>
           )}
           <div className="flex items-center gap-3">
             <button onClick={toggleListening}
               className={cn('p-3 rounded-full border transition-all flex-shrink-0',
                 isListening
                   ? 'bg-red-950/30 border-red-500/50 text-red-400 animate-pulse'
-                  : 'bg-cyan-950/20 border-cyan-600/50 text-cyan-400 hover:bg-cyan-950/40'
+                  : 'bg-white/10border-white/60 text-white hover:bg-white/12'
               )}>
               {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
             </button>
@@ -1001,14 +1014,14 @@ export default function MipoInterface() {
               onChange={e => setInputText(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
               placeholder={screenWatching ? 'MIPO видит ваш экран. Задайте вопрос...' : 'Введите команду или вопрос...'}
-              className="flex-1 bg-transparent border-b border-cyan-800/50 text-cyan-100 placeholder-cyan-800 text-sm py-2 px-1 outline-none focus:border-cyan-500/70 transition-colors"
+              className="flex-1 bg-transparent border-b border-white/50 text-white placeholder-white/20 text-sm py-2 px-1 outline-none focus:border-white/60 transition-colors"
             />
 
             <button onClick={() => handleSend()} disabled={!inputText.trim() || isProcessing}
               className={cn('p-3 rounded-full border transition-all flex-shrink-0',
                 inputText.trim() && !isProcessing
-                  ? 'bg-cyan-950/30 border-cyan-500/50 text-cyan-400 hover:bg-cyan-950/60'
-                  : 'border-cyan-900/30 text-cyan-900 cursor-not-allowed'
+                  ? 'bg-white/10 border-white/60 text-white hover:bg-white/18'
+                  : 'border-white/60 text-white/70 cursor-not-allowed'
               )}>
               <Send className="w-5 h-5" />
             </button>
